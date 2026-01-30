@@ -26,7 +26,7 @@ export const HistoryTypeSchema = z.discriminatedUnion('entryType', [
 
 export const TransactionCacheSchema = z.object({
     sessionId: z.string().optional(),
-    flowId: z.string().optional(),
+    flowId: z.string(),
     latestAction: z.string(),
     latestTimestamp: z.string(),
     type: z.enum(['default', 'manual']),

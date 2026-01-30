@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { sendSuccess, sendError, sendAck, sendNack } from './res-utils';
 import { ERROR_CODES, ONDC_ERROR_CODES } from '../constants/error-codes';
-import { BeckContext } from '../types/ondc-types';
+import { BecknContext } from '../types/ondc-types';
 
 // Mock logger
 jest.mock('../utils/logger', () => ({
@@ -54,6 +54,7 @@ describe('res-utils', () => {
             sendSuccess(
                 mockResponse as Response,
                 testData,
+                false,
                 customMessage,
                 customStatus
             );
@@ -219,7 +220,7 @@ describe('res-utils', () => {
 
     describe('sendAck', () => {
         it('should send ACK response with context', () => {
-            const context: BeckContext = {
+            const context: BecknContext = {
                 domain: 'test-domain',
                 country: 'IND',
                 city: 'std:080',
@@ -248,7 +249,7 @@ describe('res-utils', () => {
         });
 
         it('should handle empty context object', () => {
-            const emptyContext = {} as BeckContext;
+            const emptyContext = {} as BecknContext;
 
             sendAck(mockResponse as Response, emptyContext);
 
@@ -266,7 +267,7 @@ describe('res-utils', () => {
 
     describe('sendNack', () => {
         it('should send NACK response with error details', () => {
-            const context: BeckContext = {
+            const context: BecknContext = {
                 domain: 'test-domain',
                 country: 'IND',
                 city: 'std:080',
@@ -301,7 +302,7 @@ describe('res-utils', () => {
 
         it('should not send response if headers already sent', () => {
             mockResponse.headersSent = true;
-            const context = {} as BeckContext;
+            const context = {} as BecknContext;
 
             const result = sendNack(mockResponse as Response, context, '10001');
 
@@ -311,7 +312,7 @@ describe('res-utils', () => {
         });
 
         it('should handle different ONDC error codes', () => {
-            const context = {} as BeckContext;
+            const context = {} as BecknContext;
             const errorCode = '20001';
             const expectedError = ONDC_ERROR_CODES[errorCode];
 

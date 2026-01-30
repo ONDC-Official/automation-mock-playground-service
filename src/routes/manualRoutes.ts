@@ -11,6 +11,9 @@ export interface ApiRequest extends Request {
     subscriberUrl?: string;
     flowId?: string;
     apiSessionCache?: SessionCache;
+    inputs?: Record<string, unknown>;
+    domain: string;
+    version: string;
 }
 manualRouter.post('/:action');
 

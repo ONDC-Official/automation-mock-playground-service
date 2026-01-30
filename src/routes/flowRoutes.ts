@@ -12,9 +12,17 @@ const flowControllersInstance = flowControllers(
     container.getWorkbenchCacheService()
 );
 
-// flowRouter.post('/new');
+flowRouter.post(
+    '/new',
+    flowControllersInstance.startNewFlowController,
+    flowControllersInstance.actUponFlow
+);
 
-// flowRouter.post('/proceed');
+flowRouter.post(
+    '/proceed',
+    flowControllersInstance.proceedWithFlowController,
+    flowControllersInstance.actUponFlow
+);
 
 flowRouter.get(
     '/current-status',

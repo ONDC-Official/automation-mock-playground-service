@@ -27,7 +27,13 @@ const createTransactionalCache = (cache: ICacheService) => {
         subscriberURL: string
     ) => {
         const key = generateTransactionKey(transactionID, subscriberURL);
-        return cache.get(key, TransactionCacheSchema);
+        const value = await cache.get(key, TransactionCacheSchema);
+        if (value == null) {
+            throw new Error(
+                `No transaction data found for transaction ID: ${transactionID} and subscriber URL: ${subscriberURL}`
+            );
+        }
+        return value;
     };
 
     return {
