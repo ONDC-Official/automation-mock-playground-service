@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { sendError, sendNack } from '../utils/res-utils';
 import {
     httpValidationError,
+    InternalServerError,
     isBodyParserJsonError,
     OndcProtocolError,
 } from '../errors/custom-errors';
@@ -39,6 +40,10 @@ export const globalErrorHandler = (
                 : undefined;
         return sendError(res, 'BAD_REQUEST', err.message, detailsBody);
     }
+    if (err instanceof InternalServerError) {
+        return sendError(res, 'INTERNAL_ERROR', err.message);
+    }
+
     if (err instanceof OndcProtocolError) {
         return sendNack(res, getBecknContext(req), err.code, err.customMessage);
     }

@@ -2,16 +2,27 @@ import { ICacheService } from '../cache/cache-interface';
 import { IQueueService } from '../queue/IQueueService';
 import { createCache } from '../cache/cache-factory';
 import { createInMemoryQueue } from '../queue/InMemoryQueue';
-// import {
-//     handleSearchRequestJob,
-//     SearchRequestData,
-//     searchRequestJobComplete,
-//     searchRequestJobFailed,
-// } from '../service/response-handler';
 import {
     WorkbenchCacheService,
     WorkbenchCacheServiceType,
 } from '../service/cache/workbench-cache';
+import {
+    createGeneratePayloadJobHandler,
+    createGenerationRequestCompleteHandler,
+    GENERATE_PAYLOAD_JOB,
+    GenerateMockPayloadJobParams,
+    generateRequestPayloadJobFailed,
+} from '../service/jobs/generate-response';
+import {
+    MockRunnerConfigCache,
+    newMockRunnerConfigCache,
+} from '../service/cache/config-cache';
+import {
+    apiServiceRequestJobComplete,
+    apiServiceRequestJobFailed,
+    ApiServiceRequestJobParams,
+    createApiServiceRequestJobHandler,
+} from '../service/jobs/api-service-request';
 
 /**
  * ServiceContainer - Centralized dependency injection container
@@ -29,9 +40,11 @@ import {
 class ServiceContainer {
     private static instance: ServiceContainer;
 
-    private _cacheService: ICacheService | null = null;
+    private _cacheService0: ICacheService | null = null; // used for WorkbenchCacheService
+    private _cacheService1: ICacheService | null = null; // used fo mock runner.
     private _queueService: IQueueService | null = null;
     private _workbenchCacheService: WorkbenchCacheServiceType | null = null;
+    private _mockRunnerConfigCache: MockRunnerConfigCache | null = null;
 
     private constructor() {
         // Private constructor enforces singleton pattern
@@ -50,11 +63,11 @@ class ServiceContainer {
     /**
      * Get the cache service instance (lazy initialization)
      */
-    public getCacheService(): ICacheService {
-        if (!this._cacheService) {
-            this._cacheService = createCache('mock');
+    public getCacheService0(): ICacheService {
+        if (!this._cacheService0) {
+            this._cacheService0 = createCache('mock');
         }
-        return this._cacheService;
+        return this._cacheService0;
     }
 
     /**     * Get the workbench cache service instance (lazy initialization)
@@ -62,7 +75,7 @@ class ServiceContainer {
     public getWorkbenchCacheService(): WorkbenchCacheServiceType {
         if (!this._workbenchCacheService) {
             this._workbenchCacheService = WorkbenchCacheService(
-                this.getCacheService()
+                this.getCacheService0()
             );
         }
         return this._workbenchCacheService;
@@ -81,9 +94,14 @@ class ServiceContainer {
     /**
      * Override cache service (useful for testing)
      */
-    public setCacheService(service: ICacheService): void {
-        this._cacheService = service;
+    public setCacheService0(service: ICacheService): void {
+        this._cacheService0 = service;
         this._workbenchCacheService = WorkbenchCacheService(service);
+    }
+
+    public setCacheService1(service: ICacheService): void {
+        this._cacheService1 = service;
+        this._mockRunnerConfigCache = newMockRunnerConfigCache(service);
     }
 
     /**
@@ -97,7 +115,7 @@ class ServiceContainer {
      * Reset all services (useful for testing)
      */
     public reset(): void {
-        this._cacheService = null;
+        this._cacheService0 = null;
         this._queueService = null;
         this._workbenchCacheService = null;
     }
@@ -107,17 +125,37 @@ class ServiceContainer {
      */
     private initializeQueueService(): IQueueService {
         const queue = createInMemoryQueue();
+        if (!this._mockRunnerConfigCache) {
+            throw new Error('MockRunnerConfigCache not initialized');
+        }
 
-        // // Register job processors
-        // queue.process<SearchRequestData>(
-        //     'search-response',
-        //     handleSearchRequestJob
-        // );
+        // Register job processors
+        queue.process<GenerateMockPayloadJobParams>(
+            GENERATE_PAYLOAD_JOB,
+            createGeneratePayloadJobHandler(this._mockRunnerConfigCache)
+        );
+        queue.process<ApiServiceRequestJobParams>(
+            'API_SERVICE_REQUEST_JOB',
+            createApiServiceRequestJobHandler()
+        );
 
-        // // Register event handlers
-        // queue.on<SearchRequestData>('completed', searchRequestJobComplete);
-        // queue.on<SearchRequestData>('failed', searchRequestJobFailed);
-
+        // ? Register event handlers
+        queue.on<GenerateMockPayloadJobParams>(
+            'completed',
+            createGenerationRequestCompleteHandler(queue)
+        );
+        queue.on<GenerateMockPayloadJobParams>(
+            'failed',
+            generateRequestPayloadJobFailed
+        );
+        queue.on<ApiServiceRequestJobParams>(
+            'completed',
+            apiServiceRequestJobComplete
+        );
+        queue.on<ApiServiceRequestJobParams>(
+            'failed',
+            apiServiceRequestJobFailed
+        );
         return queue;
     }
 

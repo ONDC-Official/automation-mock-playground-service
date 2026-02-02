@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const MockSessionCacheSchema = z
     .object({
         MORE_SEQUENCE: z.array(z.any()).optional(), // or properly type the SequenceStep schema
+        user_inputs: z.record(z.string(), z.any()).optional(),
         // Add other properties as needed
     })
     .loose();

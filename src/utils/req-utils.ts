@@ -1,5 +1,6 @@
 import { Request } from 'express';
 import logger from './logger';
+import { ApiRequest } from '../routes/manualRoutes';
 
 export function getLoggerMeta(req: Request) {
     return {
@@ -19,4 +20,8 @@ export function getBecknContext(req: Request) {
         return {};
     }
     return context;
+}
+
+export function logError(req: ApiRequest, message: string, error: unknown) {
+    logger.error(message, getLoggerMeta(req), error);
 }

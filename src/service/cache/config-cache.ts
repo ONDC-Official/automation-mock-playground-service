@@ -21,6 +21,17 @@ export const newMockRunnerConfigCache = (cache: ICacheService) => {
                 // TODO fetch from config service
                 throw new Error(`config service not implemented`);
             }
+            let apiServiceUrl =
+                process.env.API_SERVICE_URL ||
+                'https://dev-automation.ondc.org/api-service';
+            if (apiServiceUrl.endsWith('/')) {
+                apiServiceUrl = apiServiceUrl.slice(0, -1);
+            }
+            const ownerId = apiServiceUrl.split('//')[1].split('/')[0];
+            config.transaction_data.bap_id = config.transaction_data.bpp_id =
+                ownerId;
+            config.transaction_data.bap_uri = `${apiServiceUrl}/${config.meta.domain}/${config.meta.version}/buyer`;
+            config.transaction_data.bpp_uri = `${apiServiceUrl}/${config.meta.domain}/${config.meta.version}/seller`;
             return config;
         },
         createKey: createKey,

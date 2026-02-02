@@ -1,20 +1,21 @@
 import { Router, Request } from 'express';
-import { SessionCache, TransactionCache } from '../types/cache-types';
-import { Flow } from '../types/flow-types';
+import { FlowContext } from '../types/process-flow-types';
+import ServiceContainer from '../container/container';
+import { flowControllers } from '../controllers/flow-controller';
 
 const manualRouter = Router();
 
 export interface ApiRequest extends Request {
-    flow?: Flow;
-    transactionData?: TransactionCache;
-    transactionId?: string;
-    subscriberUrl?: string;
-    flowId?: string;
-    apiSessionCache?: SessionCache;
-    inputs?: Record<string, unknown>;
-    domain: string;
-    version: string;
+    flowContext?: FlowContext;
 }
-manualRouter.post('/:action');
+
+const container = ServiceContainer.getInstance();
+
+const flowControllersInstance = flowControllers(
+    container.getQueueService(),
+    container.getWorkbenchCacheService()
+);
+
+manualRouter.post('/:action', flowControllersInstance.actUponFlow);
 
 export default manualRouter;

@@ -34,5 +34,5 @@ export type MockRequest = {
     transactionData?: {
         sessionId?: string;
     };
-    body?: Record<string, any>;
+    body?: Record<string, unknown>;
 };

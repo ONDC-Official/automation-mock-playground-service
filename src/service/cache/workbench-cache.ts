@@ -3,11 +3,14 @@ import jsonpath from 'jsonpath';
 import { ICacheService } from '../../cache/cache-interface';
 import {
     SessionCacheSchema,
+    SubscriberCache,
+    SubscriberCacheSchema,
     TransactionCacheSchema,
 } from '../../types/cache-types';
 import {
     MockFlowStatusCache,
     MockFlowStatusCacheSchema,
+    MockSessionCache,
     MockSessionCacheSchema,
     MockStatusCode,
     SaveDataConfig,
@@ -67,7 +70,7 @@ const createTxnBusinessCache = (cache: ICacheService) => {
                 transaction_id: transactionID,
                 subscriber_url: subscriberURL || null,
             };
-            return data;
+            return data as MockSessionCache;
         }
         const data = await cache.get(transactionID, MockSessionCacheSchema);
         if (!data) {
@@ -208,18 +211,169 @@ const flowStatusCache = (cache: ICacheService) => {
     };
 };
 
+const subscriberCache = (cache: ICacheService) => {
+    const EXPECTATION_EXPIRY = 5 * 60 * 1000; // 5 minutes
+
+    const createExpectation = async (
+        subscriberUrl: string,
+        flowId: string,
+        sessionId: string,
+        expectedAction: string,
+        loggerMeta?: unknown
+    ): Promise<string> => {
+        try {
+            // Fetch existing session data from cache
+            const existingData = await cache.get(
+                subscriberUrl,
+                SubscriberCacheSchema
+            );
+
+            let parsed: SubscriberCache = { activeSessions: [] };
+
+            if (existingData) {
+                parsed = existingData;
+            }
+
+            // Remove expired expectations and check for conflicts
+            parsed.activeSessions = parsed.activeSessions.filter(
+                expectation => {
+                    const isExpired =
+                        new Date(expectation.expireAt) < new Date();
+
+                    if (isExpired) return false; // Remove expired session
+
+                    if (expectation.sessionId === sessionId) {
+                        throw new Error(
+                            `Expectation already exists for sessionId: ${sessionId} and flowId: ${flowId}`
+                        );
+                    }
+
+                    if (expectation.expectedAction === expectedAction) {
+                        throw new Error(
+                            `Expectation already exists for the action: ${expectedAction}`
+                        );
+                    }
+
+                    return true; // Keep valid expectations
+                }
+            );
+
+            // Add new expectation
+            const expireAt = new Date(
+                Date.now() + EXPECTATION_EXPIRY
+            ).toISOString();
+
+            const expectation = {
+                sessionId,
+                flowId,
+                expectedAction,
+                expireAt,
+            };
+
+            parsed.activeSessions.push(expectation);
+
+            // Update cache with the modified session data
+            await cache.set(subscriberUrl, parsed, SubscriberCacheSchema);
+
+            logger.info(
+                `Expectation created for sessionId: ${sessionId}, flowId: ${flowId}, action: ${expectedAction}`,
+                loggerMeta
+            );
+
+            return 'Expectation created successfully';
+        } catch (error: unknown) {
+            logger.error(
+                'Error in creating new action expectation',
+                loggerMeta,
+                error
+            );
+            throw new Error(
+                `Failed to create expectation: ${(error as Error).message}`
+            );
+        }
+    };
+
+    const deleteExpectation = async (
+        sessionId: string,
+        subscriberUrl: string
+    ): Promise<void> => {
+        try {
+            const subscriberData = await cache.get(
+                subscriberUrl,
+                SubscriberCacheSchema
+            );
+
+            if (!subscriberData) {
+                throw new Error('Session not found');
+            }
+
+            logger.info(`Deleting expectation for sessionId: ${sessionId}`);
+
+            if (subscriberData.activeSessions === undefined) {
+                throw new Error('No active sessions found');
+            }
+
+            subscriberData.activeSessions =
+                subscriberData.activeSessions.filter(
+                    expectation => expectation.sessionId !== sessionId
+                );
+
+            await cache.set(
+                subscriberUrl,
+                subscriberData,
+                SubscriberCacheSchema
+            );
+        } catch (error) {
+            logger.error(
+                'Error in deleting expectation',
+                {
+                    sessionId,
+                    subscriberUrl,
+                },
+                error
+            );
+            throw new Error('Error deleting expectation');
+        }
+    };
+
+    const getSubscriberData = async (
+        subscriberUrl: string
+    ): Promise<SubscriberCache | null> => {
+        try {
+            const data = await cache.get(subscriberUrl, SubscriberCacheSchema);
+            return data;
+        } catch (error) {
+            logger.error(
+                'Error in getting subscriber data',
+                { subscriberUrl },
+                error
+            );
+            return null;
+        }
+    };
+
+    return {
+        createExpectation,
+        deleteExpectation,
+        getSubscriberData,
+    };
+};
+
 export type FlowStatusCacheService = ReturnType<typeof flowStatusCache>;
+export type SubscriberCacheService = ReturnType<typeof subscriberCache>;
 
 export const WorkbenchCacheService = (cache: ICacheService) => {
     const transactionalCache = createTransactionalCache(cache);
     const sessionalCache = createNpSessionalCache(cache);
     const txnBusinessCache = createTxnBusinessCache(cache);
     const flowStatusCacheService = flowStatusCache(cache);
+    const subscriberCacheService = subscriberCache(cache);
     return {
         TransactionalCacheService: () => transactionalCache,
         NpSessionalCacheService: () => sessionalCache,
         TxnBusinessCacheService: () => txnBusinessCache,
         FlowStatusCacheService: () => flowStatusCacheService,
+        SubscriberCacheService: () => subscriberCacheService,
     };
 };
 

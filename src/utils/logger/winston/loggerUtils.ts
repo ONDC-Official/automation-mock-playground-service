@@ -6,7 +6,7 @@ export function getLoggerData(request: MockRequest) {
         flowId: request?.flowId,
         transactionId:
             request.transactionId ??
-            request?.body?.context?.transaction_id ??
+            (request?.body?.context as any)?.transaction_id ??
             request.query.transaction_id,
         subscriberUrl: request.subscriberUrl,
         query: request.query,

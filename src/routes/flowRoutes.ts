@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import validateRequiredParams from '../middlewares/validateParams';
 import { flowControllers } from '../controllers/flow-controller';
-import ServiceContainer from '../container/ServiceContainer';
+import ServiceContainer from '../container/container';
 
 const flowRouter = Router();
 
