@@ -29,24 +29,40 @@ export function createGeneratePayloadJobHandler(
     configCache: MockRunnerConfigCache
 ) {
     return async (data: GenerateMockPayloadJobParams) => {
-        const { flowId, domain, version } = data.flowContext;
-        const mockConfig = await configCache.getMockRunnerConfig(
-            domain,
-            version,
-            flowId,
-            data.flowContext.apiSessionCache.usecaseId
-        );
-        const mockRunner = new MockRunner(mockConfig);
-        const genOutput = await mockRunner.runGeneratePayloadWithSession(
-            data.actionMeta.actionId,
-            data.businessDataWithInputs
-        );
-        const payload = genOutput.result;
-        return {
-            success: true,
-            message: 'Payload generated successfully',
-            payload,
-        };
+        try {
+            const { flowId, domain, version } = data.flowContext;
+            const mockConfig = await configCache.getMockRunnerConfig(
+                domain,
+                version,
+                flowId,
+                data.flowContext.apiSessionCache.usecaseId
+            );
+            const mockRunner = new MockRunner(mockConfig);
+            const genOutput = await mockRunner.runGeneratePayloadWithSession(
+                data.actionMeta.actionId,
+                data.businessDataWithInputs
+            );
+            const payload = genOutput.result;
+            if (payload === undefined) {
+                throw new Error('Generated payload is undefined');
+            }
+            logger.debug('Generated mock payload', {
+                transactionId: data.flowContext.transactionId,
+                flowId: data.flowContext.flowId,
+                actionId: data.actionMeta.actionId,
+                domain: data.flowContext.domain,
+                version: data.flowContext.version,
+                payload: payload,
+            });
+            return {
+                success: true,
+                message: 'Payload generated successfully',
+                payload,
+            };
+        } catch (error) {
+            logger.error('Error generating mock payload', {}, error);
+            throw error;
+        }
     };
 }
 
