@@ -76,38 +76,46 @@ export function createGenerationRequestCompleteHandler(
         job: QueueJob<GenerateMockPayloadJobParams>,
         result?: unknown
     ): Promise<void> => {
-        const parsedResult = result as GenerateMockPayloadJobResult;
-        const payload = parsedResult?.payload;
-        const params: ApiServiceRequestJobParams = {
-            action: job.data.actionMeta.actionType,
-            domain: job.data.flowContext.domain,
-            version: job.data.flowContext.version,
-            payload: payload ?? {},
-            subscriberUrl: job.data.flowContext.subscriberUrl,
-            queryParams: {
-                subscriber_url: job.data.flowContext.subscriberUrl,
-                flow_id: job.data.flowContext.flowId,
-                session_id:
-                    job.data.flowContext.transactionData.sessionId ?? '',
-            },
-        };
-        const mockRunnerConfig = await mockRunnerCache.getMockRunnerConfig(
-            job.data.flowContext.domain,
-            job.data.flowContext.version,
-            job.data.flowContext.flowId,
-            job.data.flowContext.apiSessionCache.usecaseId
-        );
-        const saveDataConfig = getSaveDataConfig(
-            mockRunnerConfig,
-            job.data.actionMeta.actionId
-        );
-        await workbenchCache
-            .TxnBusinessCacheService()
-            .saveMockSessionData(job.data.flowContext.transactionId, payload, {
-                'save-data': saveDataConfig,
-            });
+        try {
+            const parsedResult = result as GenerateMockPayloadJobResult;
+            const payload = parsedResult?.payload;
+            const params: ApiServiceRequestJobParams = {
+                action: job.data.actionMeta.actionType,
+                domain: job.data.flowContext.domain,
+                version: job.data.flowContext.version,
+                payload: payload ?? {},
+                subscriberUrl: job.data.flowContext.subscriberUrl,
+                queryParams: {
+                    subscriber_url: job.data.flowContext.subscriberUrl,
+                    flow_id: job.data.flowContext.flowId,
+                    session_id:
+                        job.data.flowContext.transactionData.sessionId ?? '',
+                },
+            };
+            const mockRunnerConfig = await mockRunnerCache.getMockRunnerConfig(
+                job.data.flowContext.domain,
+                job.data.flowContext.version,
+                job.data.flowContext.flowId,
+                job.data.flowContext.apiSessionCache.usecaseId
+            );
+            const saveDataConfig = getSaveDataConfig(
+                mockRunnerConfig,
+                job.data.actionMeta.actionId
+            );
+            await workbenchCache
+                .TxnBusinessCacheService()
+                .saveMockSessionData(
+                    job.data.flowContext.transactionId,
+                    payload,
+                    {
+                        'save-data': saveDataConfig,
+                    }
+                );
 
-        const id = await queue.enqueue(SEND_TO_API_SERVICE_JOB, params);
-        logger.info('Enqueued API service request job', { jobId: id });
+            const id = await queue.enqueue(SEND_TO_API_SERVICE_JOB, params);
+            logger.info('Enqueued API service request job', { jobId: id });
+        } catch (error) {
+            logger.error('Error in processing generated payload', {}, error);
+        }
     };
 }

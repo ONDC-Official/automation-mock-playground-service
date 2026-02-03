@@ -89,19 +89,27 @@ const createTxnBusinessCache = (cache: ICacheService) => {
         const data = existingData as Record<string, unknown>;
 
         for (const key in saveDataConfig) {
-            const path = saveDataConfig[key as keyof typeof saveDataConfig];
-            const appendMode = key.startsWith('APPEND#');
-            const evalMode = path.startsWith('EVAL#');
-            const actualKey = key.split('#').pop() as string;
-            const actualPath = evalMode ? path.split('#')[1] : path;
-            const result = evalMode
-                ? (await MockRunner.runGetSave(payload, actualPath)).result
-                : jsonpath.query(payload, actualPath);
-            if (appendMode) {
-                const currentData = (data[actualKey] as unknown[]) || [];
-                data[actualKey] = [...currentData, ...result];
-            } else {
-                data[actualKey] = result;
+            try {
+                const path = saveDataConfig[key as keyof typeof saveDataConfig];
+                const appendMode = key.startsWith('APPEND#');
+                const evalMode = path.startsWith('EVAL#');
+                const actualKey = key.split('#').pop() as string;
+                const actualPath = evalMode ? path.split('#')[1] : path;
+                const result = evalMode
+                    ? (await MockRunner.runGetSave(payload, actualPath)).result
+                    : jsonpath.query(payload, actualPath);
+                if (appendMode) {
+                    const currentData = (data[actualKey] as unknown[]) || [];
+                    data[actualKey] = [...currentData, ...result];
+                } else {
+                    data[actualKey] = result;
+                }
+            } catch (error) {
+                logger.error(
+                    `Error in saving data for key: ${key}`,
+                    { saveDataConfig, payload, existingData },
+                    error
+                );
             }
         }
         return data;
