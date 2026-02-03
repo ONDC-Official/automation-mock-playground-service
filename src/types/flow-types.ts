@@ -3,10 +3,10 @@ import { z } from 'zod';
 export const FormFieldConfigTypeSchema: z.ZodType<unknown> = z.lazy(() =>
     z
         .object({
-            name: z.string(),
-            label: z.string(),
-            type: z.string(),
-            payloadField: z.string(),
+            name: z.string().optional(),
+            label: z.string().optional(),
+            type: z.string().optional(),
+            payloadField: z.string().optional(),
             values: z.array(z.string()).optional(),
             defaultValue: z.string().optional(),
             input: z.array(FormFieldConfigTypeSchema).optional(),
