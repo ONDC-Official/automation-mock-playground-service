@@ -6,6 +6,6 @@ import backdoorRouter from './backdoorRouter';
 const router = Router();
 
 router.use('/manual', manualRouter);
-router.use('/flow', flowRouter);
+router.use('/flows', flowRouter);
 router.use('/backdoor', backdoorRouter);
 export default router;
