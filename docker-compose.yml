@@ -5,6 +5,8 @@ services:
             context: .
             dockerfile: dockerfile
         container_name: ondc-mock-service
+        env_file:
+            - .env
         restart: unless-stopped
         ports:
             - '${PORT:-3000}:3000'

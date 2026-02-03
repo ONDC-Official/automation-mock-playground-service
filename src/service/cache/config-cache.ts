@@ -6,23 +6,30 @@ import {
 import { fetchMockRunnerConfigFromService } from '../../utils/runner-utils';
 
 export const newMockRunnerConfigCache = (cache: ICacheService) => {
-    const createKey = (domain: string, version?: string, flowId?: string) => {
-        return `${domain.trim()}::${version?.trim() ?? ''}::${flowId?.trim() ?? ''}`;
+    const createKey = (
+        domain: string,
+        version?: string,
+        flowId?: string,
+        usecaseId?: string
+    ) => {
+        return `${domain.trim()}::${version?.trim() ?? ''}::${flowId?.trim() ?? ''}::${usecaseId?.trim() ?? ''}`;
     };
 
     return {
         getMockRunnerConfig: async (
             domain: string,
             version: string,
-            flowId: string
+            flowId: string,
+            usecaseId: string
         ): Promise<MockRunnerConfig> => {
-            const key = createKey(domain, version, flowId);
+            const key = createKey(domain, version, flowId, usecaseId);
             let config = await cache.get(key, MockRunnerConfigSchema);
             if (config == null) {
                 config = await fetchMockRunnerConfigFromService(
                     domain,
                     version,
-                    flowId
+                    flowId,
+                    usecaseId
                 );
                 await cache.set(key, config, MockRunnerConfigSchema);
             }

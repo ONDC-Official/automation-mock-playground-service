@@ -153,7 +153,8 @@ async function processMatchingRequest(
         const runnerConfig = await mockRunnerCache.getMockRunnerConfig(
             ctx.domain,
             ctx.version,
-            ctx.flowId
+            ctx.flowId,
+            ctx.apiSessionCache.usecaseId
         );
         const mockRunner = new MockRunner(runnerConfig);
         const validationResult = (

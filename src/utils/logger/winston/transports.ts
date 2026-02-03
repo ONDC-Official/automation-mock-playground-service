@@ -52,7 +52,7 @@ export function getPinoTransports(): DestinationStream | undefined {
                           password: process.env.LOKI_PASSWORD || '',
                       }
                     : undefined,
-                labels: { service: 'ondc-gcr-reader' },
+                labels: { service: 'ondc-playground-mock' },
             });
 
             streams.push({

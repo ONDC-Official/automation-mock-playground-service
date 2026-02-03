@@ -15,7 +15,8 @@ export function getSaveDataConfig(config: MockRunnerConfig, actionId: string) {
 export async function fetchMockRunnerConfigFromService(
     domain: string,
     version: string,
-    flowId: string
+    flowId: string,
+    usecaseId: string
 ) {
     try {
         const data = await axios.get(
@@ -25,13 +26,14 @@ export async function fetchMockRunnerConfigFromService(
                     domain,
                     version,
                     flowId,
+                    usecase: usecaseId,
                 },
             }
         );
         return data.data as MockRunnerConfig;
     } catch (error) {
         logger.error(
-            `Failed to fetch mock runner config for ${domain}/${version}/${flowId}`,
+            `Failed to fetch mock runner config for ${domain}/${version}/${flowId}/${usecaseId}`,
             {},
             error
         );

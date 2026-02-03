@@ -33,7 +33,8 @@ export function createGeneratePayloadJobHandler(
         const mockConfig = await configCache.getMockRunnerConfig(
             domain,
             version,
-            flowId
+            flowId,
+            data.flowContext.apiSessionCache.usecaseId
         );
         const mockRunner = new MockRunner(mockConfig);
         const genOutput = await mockRunner.runGeneratePayloadWithSession(
@@ -93,7 +94,8 @@ export function createGenerationRequestCompleteHandler(
         const mockRunnerConfig = await mockRunnerCache.getMockRunnerConfig(
             job.data.flowContext.domain,
             job.data.flowContext.version,
-            job.data.flowContext.flowId
+            job.data.flowContext.flowId,
+            job.data.flowContext.apiSessionCache.usecaseId
         );
         const saveDataConfig = getSaveDataConfig(
             mockRunnerConfig,
