@@ -169,7 +169,7 @@ dist
 .temp
 .cache
 .vscode-test
-package-lock.json
+# package-lock.json
 
 generations/
 # End of https://www.gitignore.io/api/node,vim,git,macos,linux,sublimetext

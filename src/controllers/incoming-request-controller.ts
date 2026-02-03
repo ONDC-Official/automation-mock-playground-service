@@ -216,7 +216,7 @@ async function handleValidationFailure(
         ? step.actionType.slice(3)
         : `on_${step.actionType}`;
 
-    const context = body.context as any;
+    const context = body.context as Record<string, unknown>;
 
     const errBody = {
         context: {

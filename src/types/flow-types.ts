@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const FormFieldConfigTypeSchema: z.ZodType<any> = z.lazy(() =>
+export const FormFieldConfigTypeSchema: z.ZodType<unknown> = z.lazy(() =>
     z.object({
         name: z.string(),
         label: z.string(),
