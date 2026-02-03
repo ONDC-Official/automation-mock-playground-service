@@ -1,15 +1,18 @@
 import { z } from 'zod';
 
 export const FormFieldConfigTypeSchema: z.ZodType<unknown> = z.lazy(() =>
-    z.object({
-        name: z.string(),
-        label: z.string(),
-        type: z.enum(['text', 'select', 'textarea', 'list']),
-        payloadField: z.string(),
-        values: z.array(z.string()).optional(),
-        defaultValue: z.string().optional(),
-        input: z.array(FormFieldConfigTypeSchema).optional(),
-    })
+    z
+        .object({
+            name: z.string(),
+            label: z.string(),
+            type: z.string(),
+            payloadField: z.string(),
+            values: z.array(z.string()).optional(),
+            defaultValue: z.string().optional(),
+            input: z.array(FormFieldConfigTypeSchema).optional(),
+            schema: z.record(z.string(), z.any()).optional(),
+        })
+        .loose()
 );
 
 export const FormConfigTypeSchema = z.array(FormFieldConfigTypeSchema);
