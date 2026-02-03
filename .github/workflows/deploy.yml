@@ -83,6 +83,7 @@ jobs:
     deploy:
         runs-on: ubuntu-latest
         needs: build-and-push
+        environment: dev
 
         steps:
             - name: Deploy to EC2
@@ -131,7 +132,7 @@ jobs:
 
             - name: Health check
               run: |
-                  HEALTH_URL="http://${{ secrets.EC2_HOST }}:3000/health"
+                  HEALTH_URL="http://${{ secrets.EC2_HOST }}:${{ vars.PORT || 3000 }}/health"
                   MAX_RETRIES=10
                   RETRY_COUNT=0
 
