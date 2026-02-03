@@ -13,4 +13,6 @@ export type ICacheService = {
     delete(key: string): Promise<void>;
 
     exists(key: string): Promise<boolean>;
+
+    deletePattern(pattern: string): Promise<number>;
 };

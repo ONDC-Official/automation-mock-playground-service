@@ -29,5 +29,18 @@ function createMockCache(): ICacheService {
         async exists(key: string): Promise<boolean> {
             return mockData.has(key);
         },
+        async deletePattern(pattern: string): Promise<number> {
+            const regex = new RegExp(
+                '^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$'
+            );
+            let count = 0;
+            for (const key of mockData.keys()) {
+                if (regex.test(key)) {
+                    mockData.delete(key);
+                    count++;
+                }
+            }
+            return count;
+        },
     };
 }

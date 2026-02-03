@@ -1,0 +1,100 @@
+services:
+    # Mock Service Application
+    app:
+        build:
+            context: .
+            dockerfile: dockerfile
+        container_name: ondc-mock-service
+        restart: unless-stopped
+        ports:
+            - '${PORT:-3000}:3000'
+        environment:
+            NODE_ENV: ${NODE_ENV:-production}
+            PORT: 3000
+            LOG_LEVEL: ${LOG_LEVEL:-info}
+            API_SERVICE_URL: ${API_SERVICE_URL}
+            CONFIG_SERVICE_URL: ${CONFIG_SERVICE_URL}
+
+            # Redis Configuration
+            REDIS_HOST: ${REDIS_HOST:-}
+            REDIS_PORT: ${REDIS_PORT:-6379}
+            REDIS_USERNAME: ${REDIS_USERNAME:-}
+            REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+            REDIS_DB_0: ${REDIS_DB_0:-0}
+            REDIS_DB_1: ${REDIS_DB_1:-1}
+
+            # RabbitMQ Configuration
+            RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+        depends_on:
+            redis:
+                condition: service_healthy
+            rabbitmq:
+                condition: service_healthy
+        networks:
+            - ondc-network
+        healthcheck:
+            test:
+                [
+                    'CMD',
+                    'node',
+                    '-e',
+                    "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})",
+                ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+
+    # Redis Cache
+    redis:
+        image: redis:7-alpine
+        container_name: ondc-redis
+        restart: unless-stopped
+        ports:
+            - '6379:6379'
+        command: >
+            redis-server
+            --appendonly yes
+            --requirepass ${REDIS_PASSWORD:-}
+        volumes:
+            - redis-data:/data
+        networks:
+            - ondc-network
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+    # RabbitMQ Message Queue
+    rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        container_name: ondc-rabbitmq
+        restart: unless-stopped
+        ports:
+            - '5672:5672' # AMQP port
+            - '15672:15672' # Management UI
+        environment:
+            RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+            RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+            RABBITMQ_DEFAULT_VHOST: /
+        volumes:
+            - rabbitmq-data:/var/lib/rabbitmq
+        networks:
+            - ondc-network
+        healthcheck:
+            test: ['CMD', 'rabbitmq-diagnostics', 'ping']
+            interval: 30s
+            timeout: 10s
+            retries: 5
+            start_period: 60s
+
+networks:
+    ondc-network:
+        driver: bridge
+
+volumes:
+    redis-data:
+        driver: local
+    rabbitmq-data:
+        driver: local

@@ -14,16 +14,10 @@ const createServer = (): Application => {
     const app = express();
 
     app.use(correlationIdMiddleware);
-
     app.use(httpLogger);
     app.use(cors());
-    app.use(requireJsonContent);
-    app.use(express.json({ limit: '3mb' }));
 
-    const base = '/mock/playground';
-    app.use(`${base}`, router);
-
-    // Health Check
+    // Health Check - Before JSON validation middleware
     app.get('/health', async (req: Request, res: Response) => {
         try {
             const healthStatus = await healthMonitor.getHealthStatus();
@@ -40,6 +34,12 @@ const createServer = (): Application => {
             );
         }
     });
+
+    app.use(requireJsonContent);
+    app.use(express.json({ limit: '3mb' }));
+
+    const base = '/mock/playground';
+    app.use(`${base}`, router);
 
     // Error Handling
     app.use(globalErrorHandler);

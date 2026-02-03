@@ -7,6 +7,10 @@ export function requireJsonContent(
     res: Response,
     next: NextFunction
 ) {
+    if (req.method !== 'POST') {
+        next();
+        return;
+    }
     logger.info('Validating Content-Type header for JSON', {
         content: req.headers['content-type'],
     });

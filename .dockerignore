@@ -1,0 +1,68 @@
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Build outputs
+dist
+build
+*.tsbuildinfo
+
+# Testing
+coverage
+.nyc_output
+*.test.ts
+*.spec.ts
+src/test
+__tests__
+__mocks__
+
+# Development files
+.env
+.env.local
+.env.*.local
+*.log
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+CHANGELOG.md
+LICENSE
+docs
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+azure-pipelines.yml
+
+# Docker
+Dockerfile
+dockerfile
+.dockerignore
+docker-compose.yml
+
+# Misc
+*.md
+!package.json
+.editorconfig
+.prettierrc
+.eslintrc
+.eslintignore
+eslint.config.mjs
+jest.config.js
+nodemon.json

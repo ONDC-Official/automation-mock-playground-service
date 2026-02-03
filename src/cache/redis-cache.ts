@@ -53,5 +53,13 @@ export function createRedisCacheService(redisClient: Redis): ICacheService {
             const result = await redisClient.exists(key);
             return result === 1;
         },
+
+        async deletePattern(pattern: string): Promise<number> {
+            const keys = await redisClient.keys(pattern);
+            if (keys.length === 0) {
+                return 0;
+            }
+            return await redisClient.del(...keys);
+        },
     };
 }

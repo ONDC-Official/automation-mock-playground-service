@@ -3,10 +3,11 @@ import {
     MockRunnerConfig,
     MockRunnerConfigSchema,
 } from '../../types/mock-runner-types';
+import { fetchMockRunnerConfigFromService } from '../../utils/runner-utils';
 
 export const newMockRunnerConfigCache = (cache: ICacheService) => {
-    const createKey = (domain: string, version: string, flowId: string) => {
-        return `${domain.trim()}::${version.trim()}::${flowId.trim()}`;
+    const createKey = (domain: string, version?: string, flowId?: string) => {
+        return `${domain.trim()}::${version?.trim() ?? ''}::${flowId?.trim() ?? ''}`;
     };
 
     return {
@@ -16,10 +17,14 @@ export const newMockRunnerConfigCache = (cache: ICacheService) => {
             flowId: string
         ): Promise<MockRunnerConfig> => {
             const key = createKey(domain, version, flowId);
-            const config = await cache.get(key, MockRunnerConfigSchema);
+            let config = await cache.get(key, MockRunnerConfigSchema);
             if (config == null) {
-                // TODO fetch from config service
-                throw new Error(`config service not implemented`);
+                config = await fetchMockRunnerConfigFromService(
+                    domain,
+                    version,
+                    flowId
+                );
+                await cache.set(key, config, MockRunnerConfigSchema);
             }
             let apiServiceUrl =
                 process.env.API_SERVICE_URL ||
@@ -35,6 +40,9 @@ export const newMockRunnerConfigCache = (cache: ICacheService) => {
             return config;
         },
         createKey: createKey,
+        deletePattern: async (pattern: string): Promise<number> => {
+            return cache.deletePattern(pattern);
+        },
     };
 };
 
