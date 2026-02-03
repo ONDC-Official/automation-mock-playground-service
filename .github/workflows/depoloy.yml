@@ -61,6 +61,10 @@ jobs:
                       type=ref,event=branch
                       type=sha,prefix={{branch}}-
                       type=raw,value=latest,enable={{is_default_branch}}
+                  flavor: |
+                      latest=auto
+                      prefix=
+                      suffix=
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
@@ -92,8 +96,9 @@ jobs:
                       # Login to GHCR
                       echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
 
-                      # Pull latest image from GHCR
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                      # Pull latest image from GHCR (convert to lowercase)
+                      IMAGE_NAME_LOWER=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" | tr '[:upper:]' '[:lower:]')
+                      docker pull $IMAGE_NAME_LOWER
 
                       # Stop and remove old container if exists
                       docker stop ondc-mock-service 2>/dev/null || true
@@ -116,7 +121,7 @@ jobs:
                         -e REDIS_DB_0=${{ vars.REDIS_DB_0 }} \
                         -e REDIS_DB_1=${{ vars.REDIS_DB_1 }} \
                         -e RABBITMQ_URL=${{ vars.RABBITMQ_URL }} \
-                        ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                        $IMAGE_NAME_LOWER
 
                       # Clean up dangling images
                       docker image prune -f
