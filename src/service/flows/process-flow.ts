@@ -1,5 +1,6 @@
 import { IQueueService } from '../../queue/IQueueService';
 import { FlowContext } from '../../types/process-flow-types';
+import logger from '../../utils/logger';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import { getNextActionMetaData } from './flow-mapper';
 
@@ -75,6 +76,9 @@ export async function ActOnFlowService(
         latestMeta.status === 'INPUT-REQUIRED'
     ) {
         businessCache.user_inputs = params.inputs as Record<string, unknown>;
+        logger.info(
+            `Enqueuing job to generate payload for transaction: ${params.transactionId}`
+        );
         const jobId = await queueService.enqueue('GENERATE_PAYLOAD_JOB', {
             flowContext: params,
             businessData: businessCache,

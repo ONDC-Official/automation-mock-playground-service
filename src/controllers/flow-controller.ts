@@ -28,6 +28,7 @@ import {
     attachFlowContext,
 } from '../types/process-flow-types';
 import { getLoggerMeta, logError } from '../utils/req-utils';
+import logger from '../utils/logger';
 
 export const flowControllers = (
     queueService: IQueueService,
@@ -127,7 +128,9 @@ export const flowControllers = (
                     apiList: [],
                 },
             });
-
+            logger.info(
+                `new flow with ID: ${body.flow_id} for transaction: ${transactionId} information attached to request`
+            );
             next();
         } catch (error) {
             logError(req, 'startNewFlowController failed', error);
@@ -276,11 +279,19 @@ export const flowControllers = (
 
     actUponFlow: async (req: ApiRequest, res: Response, next: NextFunction) => {
         try {
+            logger.info(
+                `Acting upon flow for transaction: ${req.flowContext?.transactionId}`
+            );
             assertFlowContext(req);
             const result = await processFlow(
                 req.flowContext,
                 workbenchCache,
                 queueService
+            );
+            logger.info(
+                `Flow acted upon for transaction: ${req.flowContext.transactionId}`,
+                result,
+                getLoggerMeta(req)
             );
             sendSuccess(res, result, true);
             return;
