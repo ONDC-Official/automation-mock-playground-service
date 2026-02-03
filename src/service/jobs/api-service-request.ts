@@ -27,6 +27,10 @@ export function createApiServiceRequestJobHandler() {
                 `mock/${data.action}`,
                 data.domain
             );
+            logger.info('Sending request to API service', {
+                url,
+                queryParams: data.queryParams,
+            });
             const res = await axios.post(url, data.payload, {
                 params: {
                     ...data.queryParams,

@@ -21,6 +21,7 @@ import {
     apiServiceRequestJobFailed,
     ApiServiceRequestJobParams,
     createApiServiceRequestJobHandler,
+    SEND_TO_API_SERVICE_JOB,
 } from '../service/jobs/api-service-request';
 
 /**
@@ -157,13 +158,14 @@ class ServiceContainer {
             createGeneratePayloadJobHandler(this._mockRunnerConfigCache)
         );
         queue.process<ApiServiceRequestJobParams>(
-            'API_SERVICE_REQUEST_JOB',
+            SEND_TO_API_SERVICE_JOB,
             createApiServiceRequestJobHandler()
         );
 
         // ? Register event handlers
         queue.on<GenerateMockPayloadJobParams>(
             'completed',
+            GENERATE_PAYLOAD_JOB,
             createGenerationRequestCompleteHandler(
                 queue,
                 this._workbenchCacheService!,
@@ -172,14 +174,17 @@ class ServiceContainer {
         );
         queue.on<GenerateMockPayloadJobParams>(
             'failed',
+            GENERATE_PAYLOAD_JOB,
             generateRequestPayloadJobFailed
         );
         queue.on<ApiServiceRequestJobParams>(
             'completed',
+            SEND_TO_API_SERVICE_JOB,
             apiServiceRequestJobComplete
         );
         queue.on<ApiServiceRequestJobParams>(
             'failed',
+            SEND_TO_API_SERVICE_JOB,
             apiServiceRequestJobFailed
         );
         return queue;

@@ -6,6 +6,7 @@ import {
 } from './IQueueService';
 import logger from '../utils/logger';
 import { randomUUID } from 'crypto';
+import { setImmediate } from 'timers';
 
 interface QueuedJob<T> extends QueueJob<T> {
     options?: QueueOptions;
@@ -18,8 +19,8 @@ interface QueueState {
     processing: boolean;
     handlers: Map<string, (data: unknown) => Promise<unknown>>;
     eventHandlers: {
-        completed: JobEventHandler<unknown>[];
-        failed: JobEventHandler<unknown>[];
+        completed: Map<string, JobEventHandler<unknown>[]>;
+        failed: Map<string, JobEventHandler<unknown>[]>;
     };
     processingLoop: NodeJS.Timeout | null;
 }
@@ -29,8 +30,8 @@ const createQueueState = (): QueueState => ({
     processing: false,
     handlers: new Map(),
     eventHandlers: {
-        completed: [],
-        failed: [],
+        completed: new Map(),
+        failed: new Map(),
     },
     processingLoop: null,
 });
@@ -78,11 +79,13 @@ const calculateRetryDelay = (
 const emitEvent = <T>(
     state: QueueState,
     eventType: 'completed' | 'failed',
-    job: QueueJob<T>,
+    job: QueueJob<T> & { jobName: string },
     result?: unknown,
     error?: Error
 ): void => {
-    state.eventHandlers[eventType].forEach(handler => {
+    const handlers = state.eventHandlers[eventType].get(job.jobName) || [];
+
+    handlers.forEach(handler => {
         try {
             handler(job, result, error);
         } catch (err) {
@@ -95,6 +98,13 @@ const emitEvent = <T>(
     });
 };
 
+const scheduleProcessing = (state: QueueState): void => {
+    if (!state.processing && state.queue.length > 0) {
+        // Use setImmediate for immediate processing on next tick
+        setImmediate(() => processNextJob(state));
+    }
+};
+
 const processNextJob = async (state: QueueState): Promise<void> => {
     if (state.processing || state.queue.length === 0) return;
     state.processing = true;
@@ -104,17 +114,21 @@ const processNextJob = async (state: QueueState): Promise<void> => {
     if (!handler) {
         logger.error(`No handler registered for job: ${job.jobName}`);
         state.processing = false;
+        scheduleProcessing(state); // ✅ Process next job
         return;
     }
+
     try {
         const result = job.options?.timeout
             ? await withTimeout(handler(job.data), job.options.timeout)
             : await handler(job.data);
+
         emitEvent(state, 'completed', job, result);
         logger.info(`Job ${job.id} completed successfully.`);
     } catch (error) {
         logger.error(`Job ${job.id} failed: ${(error as Error).message}`);
         job.attemptsLeft -= 1;
+
         if (job.attemptsLeft > 0) {
             const delay = calculateRetryDelay(
                 job.options || {},
@@ -125,12 +139,14 @@ const processNextJob = async (state: QueueState): Promise<void> => {
             );
             setTimeout(() => {
                 state.queue.push(job);
+                scheduleProcessing(state); // ✅ Trigger processing after retry
             }, delay);
         } else {
             emitEvent(state, 'failed', job, undefined, error as Error);
         }
     } finally {
         state.processing = false;
+        scheduleProcessing(state); // ✅ Process next job
     }
 };
 
@@ -138,10 +154,8 @@ export const createInMemoryQueue = (): IQueueService => {
     const state = createQueueState();
 
     state.processingLoop = setInterval(() => {
-        if (!state.processing && state.queue.length > 0) {
-            processNextJob(state);
-        }
-    }, 100); // Check every 100ms
+        scheduleProcessing(state);
+    }, 100);
 
     return {
         process<T>(
@@ -162,16 +176,19 @@ export const createInMemoryQueue = (): IQueueService => {
             const job = createJob(jobName, data, options);
             state.queue.push(job);
             logger.info(`Enqueued job ${job.id} of type ${jobName}`);
+            scheduleProcessing(state); // ✅ Trigger processing immediately
             return job.id;
         },
 
         on<T>(
             event: 'completed' | 'failed',
+            jobName: string,
             handler: JobEventHandler<T>
         ): void {
-            state.eventHandlers[event].push(
-                handler as JobEventHandler<unknown>
-            );
+            const handlersMap = state.eventHandlers[event];
+            const existingHandlers = handlersMap.get(jobName) || [];
+            existingHandlers.push(handler as JobEventHandler<unknown>);
+            handlersMap.set(jobName, existingHandlers);
         },
 
         async close(): Promise<void> {
@@ -182,8 +199,8 @@ export const createInMemoryQueue = (): IQueueService => {
             state.queue = [];
             state.processing = false;
             state.handlers.clear();
-            state.eventHandlers.completed = [];
-            state.eventHandlers.failed = [];
+            state.eventHandlers.completed.clear();
+            state.eventHandlers.failed.clear();
         },
     };
 };

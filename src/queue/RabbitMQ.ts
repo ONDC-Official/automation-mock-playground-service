@@ -20,13 +20,14 @@ interface QueuedJob<T> extends QueueJob<T> {
     attemptsLeft: number;
 }
 
+// ✅ Fixed: Event handlers now keyed by job name
 interface RabbitMQState {
     connection: ChannelModel | null;
     channel: Channel | null;
     handlers: Map<string, (data: unknown) => Promise<unknown>>;
     eventHandlers: {
-        completed: Array<JobEventHandler<unknown>>;
-        failed: Array<JobEventHandler<unknown>>;
+        completed: Map<string, JobEventHandler<unknown>[]>; // ✅ Changed to Map
+        failed: Map<string, JobEventHandler<unknown>[]>; // ✅ Changed to Map
     };
     isConnected: boolean;
     consumerTags: Map<string, string>;
@@ -41,8 +42,8 @@ const createRabbitMQState = (): RabbitMQState => ({
     channel: null,
     handlers: new Map(),
     eventHandlers: {
-        completed: [],
-        failed: [],
+        completed: new Map(), // ✅ Changed from []
+        failed: new Map(), // ✅ Changed from []
     },
     isConnected: false,
     consumerTags: new Map(),
@@ -74,14 +75,17 @@ const calculateRetryDelay = (
     return option.backoff.delay;
 };
 
+// ✅ Fixed: Only emit to handlers for specific job name
 const emitEvent = (
     state: RabbitMQState,
     eventType: 'completed' | 'failed',
-    job: QueueJob<unknown>,
+    job: QueueJob<unknown> & { jobName: string },
     result?: unknown,
     error?: Error
 ): void => {
-    state.eventHandlers[eventType].forEach(handler => {
+    const handlers = state.eventHandlers[eventType].get(job.jobName) || [];
+
+    handlers.forEach(handler => {
         try {
             handler(job, result, error);
         } catch (err) {
@@ -373,13 +377,16 @@ export const createRabbitMQQueue = async (
             return job.id;
         },
 
+        // ✅ Fixed: Store handlers by job name
         on<T>(
             event: 'completed' | 'failed',
+            jobName: string,
             handler: JobEventHandler<T>
         ): void {
-            state.eventHandlers[event].push(
-                handler as JobEventHandler<unknown>
-            );
+            const handlersMap = state.eventHandlers[event];
+            const existingHandlers = handlersMap.get(jobName) || [];
+            existingHandlers.push(handler as JobEventHandler<unknown>);
+            handlersMap.set(jobName, existingHandlers);
         },
 
         async close(): Promise<void> {
@@ -409,8 +416,8 @@ export const createRabbitMQQueue = async (
 
                 state.isConnected = false;
                 state.handlers.clear();
-                state.eventHandlers.completed = [];
-                state.eventHandlers.failed = [];
+                state.eventHandlers.completed.clear(); // ✅ Use clear() for Map
+                state.eventHandlers.failed.clear(); // ✅ Use clear() for Map
                 state.consumerTags.clear();
 
                 logger.info('RabbitMQ connection closed successfully');
@@ -421,5 +428,5 @@ export const createRabbitMQQueue = async (
         },
     };
 };
-// Replace the last line with:
+
 export type RabbitMQServiceType = IQueueService;

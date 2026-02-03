@@ -1,4 +1,5 @@
 export interface QueueJob<T> {
+    jobName: string;
     id: string;
     data: T;
     timestamp: Date;
@@ -28,6 +29,10 @@ export interface IQueueService {
         data: T,
         options?: QueueOptions
     ): Promise<string>;
-    on<T>(event: 'completed' | 'failed', handler: JobEventHandler<T>): void;
+    on<T>(
+        event: 'completed' | 'failed',
+        jobName: string,
+        handler: JobEventHandler<T>
+    ): void;
     close(): Promise<void>;
 }

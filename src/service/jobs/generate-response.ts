@@ -37,22 +37,31 @@ export function createGeneratePayloadJobHandler(
                 flowId,
                 data.flowContext.apiSessionCache.usecaseId
             );
+            logger.debug('Fetched mock runner config', {
+                transactionId: data.flowContext.transactionId,
+                flowId: data.flowContext.flowId,
+                domain: data.flowContext.domain,
+                version: data.flowContext.version,
+            });
             const mockRunner = new MockRunner(mockConfig);
+            logger.debug('Initialized mock runner', {
+                actionID: data.actionMeta.actionId,
+                sessionData: JSON.stringify(data.businessDataWithInputs),
+            });
             const genOutput = await mockRunner.runGeneratePayloadWithSession(
                 data.actionMeta.actionId,
                 data.businessDataWithInputs
             );
             const payload = genOutput.result;
             if (payload === undefined) {
+                logger.debug('Generated payload is undefined', {
+                    config: JSON.stringify(mockConfig),
+                });
                 throw new Error('Generated payload is undefined');
             }
             logger.debug('Generated mock payload', {
                 transactionId: data.flowContext.transactionId,
                 flowId: data.flowContext.flowId,
-                actionId: data.actionMeta.actionId,
-                domain: data.flowContext.domain,
-                version: data.flowContext.version,
-                payload: payload,
             });
             return {
                 success: true,
@@ -93,6 +102,10 @@ export function createGenerationRequestCompleteHandler(
         result?: unknown
     ): Promise<void> => {
         try {
+            logger.debug('Generate payload job completed', {
+                jobId: job.id,
+                jobName: job.jobName ?? 'N/A',
+            });
             const parsedResult = result as GenerateMockPayloadJobResult;
             const payload = parsedResult?.payload;
             const params: ApiServiceRequestJobParams = {

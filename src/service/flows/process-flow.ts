@@ -2,6 +2,7 @@ import { IQueueService } from '../../queue/IQueueService';
 import { FlowContext } from '../../types/process-flow-types';
 import logger from '../../utils/logger';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
+import { GenerateMockPayloadJobParams } from '../jobs/generate-response';
 import { getNextActionMetaData } from './flow-mapper';
 
 export type ActionUponFlowResponse = {
@@ -81,11 +82,15 @@ export async function ActOnFlowService(
         logger.info(
             `Enqueuing job to generate payload for transaction: ${params.transactionId}`
         );
-        const jobId = await queueService.enqueue('GENERATE_PAYLOAD_JOB', {
+        const queParams: GenerateMockPayloadJobParams = {
             flowContext: params,
-            businessData: businessCache,
+            businessDataWithInputs: businessCache,
             actionMeta: latestMeta,
-        });
+        };
+        const jobId = await queueService.enqueue(
+            'GENERATE_PAYLOAD_JOB',
+            queParams
+        );
         return {
             success: true,
             message: 'server is not responding with the mock data',
