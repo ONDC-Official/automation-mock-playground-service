@@ -9,6 +9,7 @@ export type ActionUponFlowResponse = {
     message?: string;
     data?: unknown;
     jobId?: string;
+    inputs?: unknown;
 };
 
 export async function ActOnFlowService(
@@ -55,8 +56,9 @@ export async function ActOnFlowService(
     if (latestMeta.status === 'INPUT-REQUIRED' && params.inputs === undefined) {
         return {
             success: true,
-            message: 'Flow is waiting for user input',
-            data: latestMeta.input,
+            message:
+                'Please provide inputs in the proceed/new call to progress',
+            inputs: latestMeta.input,
         };
     }
 
