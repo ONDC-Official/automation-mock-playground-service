@@ -110,7 +110,7 @@ jobs:
                         --restart unless-stopped \
                         -p ${{ vars.PORT || 3000 }}:3000 \
                         -e NODE_ENV=${{ vars.NODE_ENV }} \
-                        -e PORT=3000 \
+                        -e PORT=${{ vars.PORT || 3000 }} \
                         -e LOG_LEVEL=${{ vars.LOG_LEVEL }} \
                         -e API_SERVICE_URL=${{ vars.API_SERVICE_URL }} \
                         -e CONFIG_SERVICE_URL=${{ vars.CONFIG_SERVICE_URL }} \
