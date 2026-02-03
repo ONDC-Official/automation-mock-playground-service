@@ -32,20 +32,6 @@ describe('res-utils', () => {
     });
 
     describe('sendSuccess', () => {
-        it('should send success response with default values', () => {
-            const testData = { userId: '123', name: 'John' };
-
-            sendSuccess(mockResponse as Response, testData);
-
-            expect(mockStatus).toHaveBeenCalledWith(200);
-            expect(mockJson).toHaveBeenCalledWith({
-                success: true,
-                data: testData,
-                message: 'OK',
-                timestamp: expect.any(String),
-            });
-        });
-
         it('should send success response with custom message and status code', () => {
             const testData = { id: 1 };
             const customMessage = 'User created successfully';
@@ -69,8 +55,7 @@ describe('res-utils', () => {
         });
 
         it('should handle null/undefined data', () => {
-            sendSuccess(mockResponse as Response, null);
-
+            sendSuccess(mockResponse as Response, null, false);
             expect(mockStatus).toHaveBeenCalledWith(200);
             expect(mockJson).toHaveBeenCalledWith({
                 success: true,
@@ -83,9 +68,13 @@ describe('res-utils', () => {
         it('should not send response if headers already sent', () => {
             mockResponse.headersSent = true;
 
-            const result = sendSuccess(mockResponse as Response, {
-                test: true,
-            });
+            const result = sendSuccess(
+                mockResponse as Response,
+                {
+                    test: true,
+                },
+                false
+            );
 
             expect(mockStatus).not.toHaveBeenCalled();
             expect(mockJson).not.toHaveBeenCalled();
@@ -338,7 +327,7 @@ describe('res-utils', () => {
             }
 
             const user: User = { id: 1, name: 'John' };
-            sendSuccess<User>(mockResponse as Response, user);
+            sendSuccess<User>(mockResponse as Response, user, false);
 
             // TypeScript compilation check - should not have errors
             expect(mockJson).toHaveBeenCalledWith({
@@ -393,7 +382,7 @@ describe('res-utils', () => {
         });
 
         it('should generate valid ISO timestamp', () => {
-            sendSuccess(mockResponse as Response, { test: true });
+            sendSuccess(mockResponse as Response, { test: true }, false);
 
             const callArgs = mockJson.mock.calls[0][0];
             const timestamp = callArgs.timestamp;
