@@ -25,6 +25,7 @@ const incomingControllers = incomingRequestControllers(
 
 manualRouter.post(
     '/:action',
+    flowControllersInstance.receivePayloadFromApiService,
     incomingControllers.validateAndSaveIncomingRequest,
     flowControllersInstance.actUponFlow
 );
