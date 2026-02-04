@@ -22,7 +22,7 @@ const createTransactionalCache = (cache: ICacheService) => {
         transactionID: string,
         subscriberURL: string
     ): string => {
-        return `${subscriberURL.trim()}::${transactionID.trim()}`;
+        return `${transactionID.trim()}::${subscriberURL.trim()}`;
     };
 
     const getTransactionData = async (
