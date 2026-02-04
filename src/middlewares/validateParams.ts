@@ -5,7 +5,6 @@ import { getLoggerData } from '../utils/logger/winston/loggerUtils';
 
 function validateRequiredParams(params: string[]) {
     return (req: Request, res: Response, next: NextFunction): void => {
-        logger.info('Validating required parameters', getLoggerData(req));
         const missingParams = params.filter(param => !req.query[param]);
         if (missingParams.length > 0) {
             logger.error('Missing required parameters', getLoggerData(req), {
