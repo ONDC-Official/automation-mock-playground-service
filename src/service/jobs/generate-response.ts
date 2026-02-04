@@ -26,6 +26,7 @@ export type GenerateMockPayloadJobResult = {
 };
 
 export function createGeneratePayloadJobHandler(
+    workbenchCache: WorkbenchCacheServiceType,
     configCache: MockRunnerConfigCache
 ) {
     return async (data: GenerateMockPayloadJobParams) => {
@@ -70,6 +71,13 @@ export function createGeneratePayloadJobHandler(
             };
         } catch (error) {
             logger.error('Error generating mock payload', {}, error);
+            workbenchCache
+                .FlowStatusCacheService()
+                .setFlowStatus(
+                    data.flowContext.transactionId,
+                    data.flowContext.subscriberUrl,
+                    'AVAILABLE'
+                );
             throw error;
         }
     };

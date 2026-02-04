@@ -87,6 +87,13 @@ export async function ActOnFlowService(
             businessDataWithInputs: businessCache,
             actionMeta: latestMeta,
         };
+        await workbenchCache
+            .FlowStatusCacheService()
+            .setFlowStatus(
+                params.transactionId,
+                params.subscriberUrl,
+                'WORKING'
+            );
         const jobId = await queueService.enqueue(
             'GENERATE_PAYLOAD_JOB',
             queParams
