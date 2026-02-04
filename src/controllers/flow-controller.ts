@@ -217,7 +217,6 @@ export const flowControllers = (
         res: Response,
         next: NextFunction
     ) => {
-        console.log('getFlowStatusController called');
         try {
             logger.debug('Fetching flow status', getLoggerMeta(req));
             const query = validateOrThrow(
@@ -265,11 +264,6 @@ export const flowControllers = (
                 flowWorkingState.status,
                 mockSessionData
             );
-            logger.debug('Fetched flow status', {
-                transactionId: query.transaction_id,
-                flowId: transactionData.flowId,
-                status: status,
-            });
             sendSuccess(res, status);
         } catch (error) {
             logError(req, 'getFlowStatusController failed', error);
