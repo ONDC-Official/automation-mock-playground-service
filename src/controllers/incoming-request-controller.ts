@@ -82,7 +82,7 @@ export function incomingRequestControllers(
                     workbenchCache
                 );
 
-                if (processRequest?.shouldRespond === false) {
+                if (processRequest?.shouldRespond === true) {
                     sendAck(res, payload.context);
                     return;
                 }
@@ -181,14 +181,22 @@ async function processMatchingRequest(
                 queue,
                 ctx
             );
-            return { shouldRespond: false };
+            return { shouldRespond: true };
         }
+        logger.info(
+            'L2 validations passed, saving the incoming request data',
+            getLoggerData(req)
+        );
         const saveDataConfig = getSaveDataConfig(runnerConfig, step.actionId);
         await workbenchCache
             .TxnBusinessCacheService()
             .saveMockSessionData(ctx.transactionId, body, {
                 'save-data': saveDataConfig,
             });
+        logger.info(
+            `Successfully saved incoming request for action ${step.actionId}`,
+            getLoggerData(req)
+        );
         return { shouldRespond: false };
     } catch (error) {
         logger.error(
