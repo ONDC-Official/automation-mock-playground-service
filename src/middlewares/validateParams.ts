@@ -14,6 +14,7 @@ function validateRequiredParams(params: string[]) {
                 new httpValidationError('Missing required parameters', params)
             );
         }
+        next();
     };
 }
 

@@ -217,7 +217,9 @@ export const flowControllers = (
         res: Response,
         next: NextFunction
     ) => {
+        console.log('getFlowStatusController called');
         try {
+            logger.debug('Fetching flow status', getLoggerMeta(req));
             const query = validateOrThrow(
                 getFlowStatusQuerySchema,
                 req.query,
@@ -253,14 +255,21 @@ export const flowControllers = (
                 );
 
             const flow = fetchFlow(sessionData, transactionData.flowId);
-
+            logger.debug('Fetched flow data', {
+                transactionId: query.transaction_id,
+                flowId: transactionData.flowId,
+            });
             const status = getFlowCompleteStatus(
                 transactionData,
                 flow,
                 flowWorkingState.status,
                 mockSessionData
             );
-
+            logger.debug('Fetched flow status', {
+                transactionId: query.transaction_id,
+                flowId: transactionData.flowId,
+                status: status,
+            });
             sendSuccess(res, status);
         } catch (error) {
             logError(req, 'getFlowStatusController failed', error);

@@ -151,11 +151,17 @@ class ServiceContainer {
         if (!this._mockRunnerConfigCache) {
             throw new Error('MockRunnerConfigCache not initialized');
         }
+        if (!this._workbenchCacheService) {
+            throw new Error('WorkbenchCacheService not initialized');
+        }
 
         // Register job processors
         queue.process<GenerateMockPayloadJobParams>(
             GENERATE_PAYLOAD_JOB,
-            createGeneratePayloadJobHandler(this._mockRunnerConfigCache)
+            createGeneratePayloadJobHandler(
+                this._workbenchCacheService,
+                this._mockRunnerConfigCache
+            )
         );
         queue.process<ApiServiceRequestJobParams>(
             SEND_TO_API_SERVICE_JOB,
