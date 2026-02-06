@@ -3,7 +3,7 @@ import build from 'pino-loki';
 import type { DestinationStream } from 'pino';
 
 export function getPinoConfig(serviceName: string): pino.LoggerOptions {
-    const isProduction = process.env.NODE_ENV === 'production';
+    // const isProduction = process.env.NODE_ENV === 'production';
 
     return {
         level: process.env.LOG_LEVEL || 'info',
@@ -12,21 +12,21 @@ export function getPinoConfig(serviceName: string): pino.LoggerOptions {
             category: 'playground-mock',
         },
         timestamp: pino.stdTimeFunctions.isoTime,
-        ...(isProduction
-            ? {
-                  // In production, we want to log in JSON format for better parsing in Loki
-              }
-            : {
-                  transport: {
-                      target: 'pino-pretty',
-                      options: {
-                          colorize: true,
-                          translateTime: 'yyyy-mm-dd HH:MM:ss.l',
-                          ignore: 'pid,hostname',
-                          messageFormat: '{scope} {msg}',
-                      },
-                  },
-              }),
+        // ...(isProduction
+        //     ? {
+        //           // In production, we want to log in JSON format for better parsing in Loki
+        //       }
+        //     : {
+        //           transport: {
+        //               target: 'pino-pretty',
+        //               options: {
+        //                   colorize: true,
+        //                   translateTime: 'yyyy-mm-dd HH:MM:ss.l',
+        //                   ignore: 'pid,hostname',
+        //                   messageFormat: '{scope} {msg}',
+        //               },
+        //           },
+        //       }),
     };
 }
 
@@ -55,12 +55,10 @@ export function getPinoTransports(): DestinationStream | undefined {
                 labels: { service: 'ondc-playground-mock' },
             });
 
-            // Return pino-loki stream directly
-            // Logs will go to both stdout (default) and Loki
-            return pino.multistream([
-                { stream: process.stdout },
-                { stream: lokiStream },
-            ]);
+            // Return only Loki stream
+            // Pino-loki doesn't work correctly with multistream
+            // Console logs will still appear via Docker/container logs
+            return lokiStream;
         } catch (error) {
             console.error('Failed to setup Loki transport:', error);
             // Fall back to stdout only
