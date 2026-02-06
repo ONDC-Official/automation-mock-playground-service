@@ -13,7 +13,9 @@ export function getPinoConfig(serviceName: string): pino.LoggerOptions {
         },
         timestamp: pino.stdTimeFunctions.isoTime,
         ...(isProduction
-            ? {}
+            ? {
+                  // In production, we want to log in JSON format for better parsing in Loki
+              }
             : {
                   transport: {
                       target: 'pino-pretty',
@@ -35,23 +37,23 @@ export function getPinoTransports(): DestinationStream | undefined {
         return undefined;
     }
 
-    const streams: pino.StreamEntry[] = [
-        {
-            stream: process.stdout,
-        },
-    ];
+    const streams: pino.StreamEntry[] = [];
 
     // Add Loki transport in production
     if (process.env.LOKI_HOST) {
         try {
+            const lokiUsername = process.env.LOKI_USERNAME;
+            const lokiPassword = process.env.LOKI_PASSWORD;
+
             const lokiStream = build({
                 host: process.env.LOKI_HOST,
-                basicAuth: process.env.LOKI_BASIC_AUTH
-                    ? {
-                          username: process.env.LOKI_USERNAME || '',
-                          password: process.env.LOKI_PASSWORD || '',
-                      }
-                    : undefined,
+                basicAuth:
+                    process.env.LOKI_BASIC_AUTH && lokiUsername && lokiPassword
+                        ? {
+                              username: lokiUsername,
+                              password: lokiPassword,
+                          }
+                        : undefined,
                 labels: { service: 'ondc-playground-mock' },
             });
 
@@ -62,6 +64,16 @@ export function getPinoTransports(): DestinationStream | undefined {
             console.error('Failed to setup Loki transport:', error);
         }
     }
+
+    // If no custom streams (Loki), return undefined to use default stdout
+    if (streams.length === 0) {
+        return undefined;
+    }
+
+    // Add stdout along with other streams
+    streams.push({
+        stream: process.stdout,
+    });
 
     return pino.multistream(streams);
 }

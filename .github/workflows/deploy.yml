@@ -122,6 +122,7 @@ jobs:
                         -e REDIS_DB_0=${{ vars.REDIS_DB_0 }} \
                         -e REDIS_DB_1=${{ vars.REDIS_DB_1 }} \
                         -e RABBITMQ_URL=${{ vars.RABBITMQ_URL }} \
+                        -e LOKI_HOST=${{ vars.LOKI_HOST }} \
                         $IMAGE_NAME_LOWER
 
                       # Clean up dangling images
