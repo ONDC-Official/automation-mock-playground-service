@@ -95,7 +95,7 @@ const createTxnBusinessCache = (cache: ICacheService) => {
         existingData: unknown
     ) => {
         const data = existingData as Record<string, unknown>;
-
+        saveDataConfig.latestMessage_id = '$.context.message_id';
         for (const key in saveDataConfig) {
             try {
                 const path = saveDataConfig[key as keyof typeof saveDataConfig];
