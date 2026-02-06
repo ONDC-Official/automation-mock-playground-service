@@ -52,7 +52,9 @@ export function getPinoTransports(): DestinationStream | undefined {
                               password: lokiPassword,
                           }
                         : undefined,
-                labels: { service: 'ondc-playground-mock' },
+                labels: { app: 'ondc-playground-mock' },
+                // Use propsToLabels to control which fields become Loki labels
+                propsToLabels: ['level'],
             });
 
             // Return only Loki stream
