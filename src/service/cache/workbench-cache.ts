@@ -61,18 +61,26 @@ const createNpSessionalCache = (cache: ICacheService) => {
 };
 
 const createTxnBusinessCache = (cache: ICacheService) => {
+    const createMockSessionKey = (
+        transactionID: string,
+        subscriberURL: string
+    ) => {
+        return `MOCK_DATA::${transactionID.trim()}::${subscriberURL.trim()}`;
+    };
+
     const getMockSessionData = async (
         transactionID: string,
-        subscriberURL?: string
+        subscriberURL: string
     ) => {
-        if ((await cache.exists(transactionID)) === false) {
+        const key = createMockSessionKey(transactionID, subscriberURL);
+        if ((await cache.exists(key)) === false) {
             const data = {
                 transaction_id: transactionID,
                 subscriber_url: subscriberURL || null,
             };
             return data as MockSessionCache;
         }
-        const data = await cache.get(transactionID, MockSessionCacheSchema);
+        const data = await cache.get(key, MockSessionCacheSchema);
         if (!data) {
             throw new Error(
                 `No mock session data found for transaction ID: ${transactionID}`
@@ -117,23 +125,30 @@ const createTxnBusinessCache = (cache: ICacheService) => {
 
     const saveMockSessionData = async (
         transactionID: string,
+        subscriberURL: string,
         ondcPayload: unknown,
         saveDataConfig: SaveDataConfig
     ) => {
-        const currentData = await getMockSessionData(transactionID);
+        const currentData = await getMockSessionData(
+            transactionID,
+            subscriberURL
+        );
         const updatedData = await getUpdatedData(
             saveDataConfig['save-data'],
             ondcPayload,
             currentData
         );
-        return cache.set(transactionID, updatedData, MockSessionCacheSchema);
+        const key = createMockSessionKey(transactionID, subscriberURL);
+        return cache.set(key, updatedData, MockSessionCacheSchema);
     };
 
     const overwriteMockSessionData = async (
         transactionID: string,
+        subscriberURL: string,
         data: unknown
     ) => {
-        return cache.set(transactionID, data, MockSessionCacheSchema);
+        const key = createMockSessionKey(transactionID, subscriberURL);
+        return cache.set(key, data, MockSessionCacheSchema);
     };
 
     return {

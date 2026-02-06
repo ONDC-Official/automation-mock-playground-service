@@ -84,7 +84,7 @@ export async function ActOnFlowService(
         );
         const queParams: GenerateMockPayloadJobParams = {
             flowContext: params,
-            businessDataWithInputs: businessCache,
+            inputs: params.inputs,
             actionMeta: latestMeta,
         };
         await workbenchCache

@@ -15,7 +15,7 @@ export const GENERATE_PAYLOAD_JOB = 'GENERATE_PAYLOAD_JOB';
 
 export type GenerateMockPayloadJobParams = {
     flowContext: FlowContext;
-    businessDataWithInputs: unknown;
+    inputs?: unknown;
     actionMeta: MappedStep;
 };
 
@@ -47,11 +47,19 @@ export function createGeneratePayloadJobHandler(
             const mockRunner = new MockRunner(mockConfig);
             logger.debug('Initialized mock runner', {
                 actionID: data.actionMeta.actionId,
-                sessionData: JSON.stringify(data.businessDataWithInputs),
             });
+            const txnMockData = await workbenchCache
+                .TxnBusinessCacheService()
+                .getMockSessionData(
+                    data.flowContext.transactionId,
+                    data.flowContext.subscriberUrl
+                );
+            txnMockData.user_inputs = data.inputs as
+                | Record<string, unknown>
+                | undefined;
             const genOutput = await mockRunner.runGeneratePayloadWithSession(
                 data.actionMeta.actionId,
-                data.businessDataWithInputs
+                txnMockData
             );
             const payload = genOutput.result;
             if (payload === undefined) {
@@ -143,6 +151,7 @@ export function createGenerationRequestCompleteHandler(
                 .TxnBusinessCacheService()
                 .saveMockSessionData(
                     job.data.flowContext.transactionId,
+                    job.data.flowContext.subscriberUrl,
                     payload,
                     {
                         'save-data': saveDataConfig,
