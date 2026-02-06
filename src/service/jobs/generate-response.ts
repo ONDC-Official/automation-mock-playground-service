@@ -3,7 +3,7 @@ import { IQueueService, QueueJob } from '../../queue/IQueueService';
 import { MappedStep } from '../../types/mapped-flow-types';
 import { FlowContext } from '../../types/process-flow-types';
 import { MockRunnerConfigCache } from '../cache/config-cache';
-import logger from '../../utils/logger';
+import logger from '@ondc/automation-logger';
 import {
     ApiServiceRequestJobParams,
     SEND_TO_API_SERVICE_JOB,

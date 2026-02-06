@@ -1,6 +1,6 @@
 import { IQueueService } from '../../queue/IQueueService';
 import { FlowContext } from '../../types/process-flow-types';
-import logger from '../../utils/logger';
+import logger from '@ondc/automation-logger';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import { GenerateMockPayloadJobParams } from '../jobs/generate-response';
 import { getNextActionMetaData } from './flow-mapper';

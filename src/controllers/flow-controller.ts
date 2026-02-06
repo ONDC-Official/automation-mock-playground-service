@@ -28,7 +28,7 @@ import {
     attachFlowContext,
 } from '../types/process-flow-types';
 import { getLoggerMeta, logError } from '../utils/req-utils';
-import logger from '../utils/logger';
+import logger from '@ondc/automation-logger';
 
 export const flowControllers = (
     queueService: IQueueService,

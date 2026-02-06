@@ -1,20 +1,21 @@
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import { healthMonitor } from './utils/health-monitor';
-import logger from './utils/logger';
+import logger from '@ondc/automation-logger';
 import { sendError, sendSuccess } from './utils/res-utils';
-import { correlationIdMiddleware } from './utils/logger/middleware/correlation-middleware';
-import { httpLogger } from './middlewares/http-logger';
+
 import { globalErrorHandler } from './middlewares/error-handler';
 import { requireJsonContent } from './middlewares/http-validations';
 import router from './routes';
+import { requestLogger, responseLogger } from './middlewares/http-logger';
 
 const createServer = (): Application => {
     logger.info('Creating server...');
     const app = express();
 
-    app.use(correlationIdMiddleware);
-    app.use(httpLogger);
+    app.use(logger.getCorrelationIdMiddleware());
+    app.use(requestLogger);
+    app.use(responseLogger);
     app.use(cors());
 
     // Health Check - Before JSON validation middleware

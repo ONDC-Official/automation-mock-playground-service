@@ -4,7 +4,7 @@ import {
     QueueJob,
     QueueOptions,
 } from './IQueueService';
-import logger from '../utils/logger';
+import logger from '@ondc/automation-logger';
 import { randomUUID } from 'crypto';
 import { setImmediate } from 'timers';
 

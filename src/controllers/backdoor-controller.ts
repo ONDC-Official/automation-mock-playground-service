@@ -2,7 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { BackdoorService } from '../service/backdoor-service';
 import { clearFlowsQuerySchema } from '../types/backdoor-types';
 import { sendError, sendSuccess } from '../utils/res-utils';
-import logger from '../utils/logger';
+import logger from '@ondc/automation-logger';
 import { httpValidationError } from '../errors/custom-errors';
 
 export const backdoorControllers = (backdoorService: BackdoorService) => ({

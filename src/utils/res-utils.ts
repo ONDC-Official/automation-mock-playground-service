@@ -5,10 +5,10 @@ import {
     ONDC_ERROR_CODES,
     OndcErrorCodeKey,
 } from '../constants/error-codes';
-import logger from './logger';
+import logger from '@ondc/automation-logger';
 import { BecknContext } from '../types/ondc-types';
 
-const resUtilsLogger = logger.child('res-utils');
+const resUtilsLogger = logger;
 
 // 1. Define response types for better type safety
 export interface SuccessResponse<T = unknown> {

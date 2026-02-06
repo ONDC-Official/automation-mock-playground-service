@@ -11,7 +11,7 @@ import { logError } from '../utils/req-utils';
 import { getFlowCompleteStatus } from '../service/flows/flow-mapper';
 import { getLoggerData } from '../utils/logger/winston/loggerUtils';
 import { MappedStep } from '../types/mapped-flow-types';
-import logger from '../utils/logger';
+import logger from '@ondc/automation-logger';
 import { FlowContext } from '../types/process-flow-types';
 import MockRunner from '@ondc/automation-mock-runner';
 import { IQueueService } from '../queue/IQueueService';

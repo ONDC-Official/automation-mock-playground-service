@@ -8,7 +8,7 @@ InitMainContainer();
 
 // Now safe to import server which imports routes
 import createServer from './server';
-import logger from './utils/logger';
+import logger from '@ondc/automation-logger';
 
 const app = createServer();
 

@@ -4,12 +4,6 @@ import { ERROR_CODES, ONDC_ERROR_CODES } from '../constants/error-codes';
 import { BecknContext } from '../types/ondc-types';
 
 // Mock logger
-jest.mock('../utils/logger', () => ({
-    child: jest.fn(() => ({
-        warning: jest.fn(),
-        error: jest.fn(),
-    })),
-}));
 
 describe('res-utils', () => {
     let mockResponse: Partial<Response>;

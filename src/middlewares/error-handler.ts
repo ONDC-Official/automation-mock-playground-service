@@ -7,7 +7,7 @@ import {
     OndcProtocolError,
 } from '../errors/custom-errors';
 import { getBecknContext, getLoggerMeta } from '../utils/req-utils';
-import logger from '../utils/logger';
+import logger from '@ondc/automation-logger';
 
 export const globalErrorHandler = (
     err: Error,

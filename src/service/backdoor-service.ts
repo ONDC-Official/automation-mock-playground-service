@@ -1,5 +1,5 @@
 import { ClearFlowsQuery, ClearFlowsResult } from '../types/backdoor-types';
-import logger from '../utils/logger';
+import logger from '@ondc/automation-logger';
 import { MockRunnerConfigCache } from './cache/config-cache';
 
 export class BackdoorService {

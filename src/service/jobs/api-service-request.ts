@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { QueueJob } from '../../queue/IQueueService';
-import logger from '../../utils/logger';
+import logger from '@ondc/automation-logger';
 
 export const SEND_TO_API_SERVICE_JOB = 'SEND_TO_API_SERVICE_JOB';
 

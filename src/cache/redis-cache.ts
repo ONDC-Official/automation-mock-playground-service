@@ -1,7 +1,7 @@
 import { ICacheService } from './cache-interface';
 import Redis from 'ioredis';
 import { z } from 'zod';
-import logger from '../utils/logger';
+import logger from '@ondc/automation-logger';
 
 export function createRedisCacheService(redisClient: Redis): ICacheService {
     return {

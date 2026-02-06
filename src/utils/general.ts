@@ -1,4 +1,4 @@
-import logger from './logger';
+import logger from '@ondc/automation-logger';
 
 export function isValidJson(
     value: unknown,

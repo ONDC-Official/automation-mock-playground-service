@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { MockRunnerConfig } from '../types/mock-runner-types';
-import logger from './logger';
+import logger from '@ondc/automation-logger';
 
 export function getSaveDataConfig(config: MockRunnerConfig, actionId: string) {
     const actionConfig = config.steps?.find(

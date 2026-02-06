@@ -1,6 +1,6 @@
 import { createRedisCacheService } from '../../cache/redis-cache';
 import { createInMemoryQueue } from '../../queue/InMemoryQueue';
-import logger from '../../utils/logger';
+import logger from '@ondc/automation-logger';
 import ServiceContainer from '../container';
 import Redis from 'ioredis';
 

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import logger from '../utils/logger';
+import logger from '@ondc/automation-logger';
 import { httpValidationError } from '../errors/custom-errors';
 import { getLoggerData } from '../utils/logger/winston/loggerUtils';
 

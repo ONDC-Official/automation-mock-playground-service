@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import logger from './logger';
+import logger from '@ondc/automation-logger';
 import { ApiRequest } from '../routes/manualRoutes';
 
 export function getLoggerMeta(req: Request) {
