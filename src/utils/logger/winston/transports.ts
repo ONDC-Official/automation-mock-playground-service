@@ -37,8 +37,6 @@ export function getPinoTransports(): DestinationStream | undefined {
         return undefined;
     }
 
-    const streams: pino.StreamEntry[] = [];
-
     // Add Loki transport in production
     if (process.env.LOKI_HOST) {
         try {
@@ -57,23 +55,19 @@ export function getPinoTransports(): DestinationStream | undefined {
                 labels: { service: 'ondc-playground-mock' },
             });
 
-            streams.push({
-                stream: lokiStream,
-            });
+            // Return pino-loki stream directly
+            // Logs will go to both stdout (default) and Loki
+            return pino.multistream([
+                { stream: process.stdout },
+                { stream: lokiStream },
+            ]);
         } catch (error) {
             console.error('Failed to setup Loki transport:', error);
+            // Fall back to stdout only
+            return undefined;
         }
     }
 
-    // If no custom streams (Loki), return undefined to use default stdout
-    if (streams.length === 0) {
-        return undefined;
-    }
-
-    // Add stdout along with other streams
-    streams.push({
-        stream: process.stdout,
-    });
-
-    return pino.multistream(streams);
+    // No Loki configured, use default stdout
+    return undefined;
 }
