@@ -148,7 +148,14 @@ export function createGenerationRequestCompleteHandler(
                         'save-data': saveDataConfig,
                     }
                 );
-
+            logger.info(
+                'Successfully saved generated payload for action ' +
+                    job.data.actionMeta.actionId,
+                {
+                    transactionId: job.data.flowContext.transactionId,
+                    actionId: job.data.actionMeta.actionId,
+                }
+            );
             const id = await queue.enqueue(SEND_TO_API_SERVICE_JOB, params);
             logger.info('Enqueued API service request job', { jobId: id });
         } catch (error) {
