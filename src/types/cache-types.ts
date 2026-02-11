@@ -29,7 +29,7 @@ export const TransactionCacheSchema = z.object({
     flowId: z.string(),
     latestAction: z.string(),
     latestTimestamp: z.string(),
-    type: z.enum(['default', 'manual']),
+    type: z.enum(['default', 'manual', '']).optional(),
     subscriberType: z.enum(['BAP', 'BPP']),
     messageIds: z.array(z.string()),
     apiList: z.array(HistoryTypeSchema),
@@ -44,7 +44,7 @@ export const SessionCacheSchema = z.object({
     subscriberId: z.string().optional(),
     subscriberUrl: z.string(),
     usecaseId: z.string(),
-    env: z.enum(['STAGING', 'PRE-PRODUCTION']),
+    env: z.enum(['STAGING', 'PRE-PRODUCTION', 'LOGGED-IN']),
     flowConfigs: z.record(z.string(), FlowSchema),
 });
 
