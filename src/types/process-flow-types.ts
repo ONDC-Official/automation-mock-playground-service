@@ -7,6 +7,7 @@ export interface FlowContext {
     flow: Flow;
     flowId: string;
     transactionId: string;
+    sessionId: string;
     subscriberUrl: string;
     apiSessionCache: SessionCache;
     transactionData: TransactionCache;

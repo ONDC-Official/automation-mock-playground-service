@@ -10,6 +10,7 @@ import {
 } from './api-service-request';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import { getSaveDataConfig } from '../../utils/runner-utils';
+import { createGenericContext } from '../../utils/create-generic-context';
 
 export const GENERATE_PAYLOAD_JOB = 'GENERATE_PAYLOAD_JOB';
 
@@ -36,7 +37,8 @@ export function createGeneratePayloadJobHandler(
                 domain,
                 version,
                 flowId,
-                data.flowContext.apiSessionCache.usecaseId
+                data.flowContext.apiSessionCache.usecaseId,
+                data.flowContext.transactionData.sessionId
             );
             logger.debug('Fetched mock runner config', {
                 transactionId: data.flowContext.transactionId,
@@ -52,7 +54,8 @@ export function createGeneratePayloadJobHandler(
                 .TxnBusinessCacheService()
                 .getMockSessionData(
                     data.flowContext.transactionId,
-                    data.flowContext.subscriberUrl
+                    data.flowContext.subscriberUrl,
+                    data.flowContext.sessionId
                 );
             txnMockData.user_inputs = data.inputs as
                 | Record<string, unknown>
@@ -61,7 +64,30 @@ export function createGeneratePayloadJobHandler(
                 data.actionMeta.actionId,
                 txnMockData
             );
+            if (genOutput.success === false) {
+                return {
+                    success: true,
+                    message:
+                        'Mock payload generation failed, but proceeding with payload with error details',
+                    payload: {
+                        context: createGenericContext(
+                            data.flowContext.domain,
+                            data.flowContext.version,
+                            data.actionMeta.actionType,
+                            data.flowContext.transactionId,
+                            data.flowContext.subscriberUrl
+                        ),
+                        error: {
+                            message: genOutput.error?.message,
+                            logs: genOutput.logs,
+                            name: genOutput.error?.name,
+                        },
+                    },
+                };
+            }
+
             const payload = genOutput.result;
+
             if (payload === undefined) {
                 logger.debug('Generated payload is undefined', {
                     config: JSON.stringify(mockConfig),
@@ -133,30 +159,29 @@ export function createGenerationRequestCompleteHandler(
                 queryParams: {
                     subscriber_url: job.data.flowContext.subscriberUrl,
                     flow_id: job.data.flowContext.flowId,
-                    session_id:
-                        job.data.flowContext.transactionData.sessionId ?? '',
+                    session_id: job.data.flowContext.sessionId,
                 },
             };
             const mockRunnerConfig = await mockRunnerCache.getMockRunnerConfig(
                 job.data.flowContext.domain,
                 job.data.flowContext.version,
                 job.data.flowContext.flowId,
-                job.data.flowContext.apiSessionCache.usecaseId
+                job.data.flowContext.apiSessionCache.usecaseId,
+                job.data.flowContext.sessionId
             );
             const saveDataConfig = getSaveDataConfig(
                 mockRunnerConfig,
                 job.data.actionMeta.actionId
             );
-            await workbenchCache
-                .TxnBusinessCacheService()
-                .saveMockSessionData(
-                    job.data.flowContext.transactionId,
-                    job.data.flowContext.subscriberUrl,
-                    payload,
-                    {
-                        'save-data': saveDataConfig,
-                    }
-                );
+            await workbenchCache.TxnBusinessCacheService().saveMockSessionData(
+                job.data.flowContext.transactionId,
+                job.data.flowContext.subscriberUrl,
+                payload,
+                {
+                    'save-data': saveDataConfig,
+                },
+                job.data.flowContext.sessionId
+            );
             logger.info(
                 'Successfully saved generated payload for action ' +
                     job.data.actionMeta.actionId,

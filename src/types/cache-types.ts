@@ -35,18 +35,32 @@ export const TransactionCacheSchema = z.object({
     apiList: z.array(HistoryTypeSchema),
 });
 
-export const SessionCacheSchema = z.object({
-    transactionIds: z.array(z.string()),
-    flowMap: z.record(z.string(), z.string().optional()),
-    npType: z.enum(['BAP', 'BPP']),
-    domain: z.string(),
-    version: z.string(),
-    subscriberId: z.string().optional(),
-    subscriberUrl: z.string(),
-    usecaseId: z.string(),
-    env: z.enum(['STAGING', 'PRE-PRODUCTION', 'LOGGED-IN']),
-    flowConfigs: z.record(z.string(), FlowSchema),
-});
+export const SessionCacheSchema = z
+    .object({
+        transactionIds: z.array(z.string()),
+        flowMap: z.record(z.string(), z.string().optional()),
+        npType: z.enum(['BAP', 'BPP']),
+        domain: z.string(),
+        version: z.string(),
+        subscriberId: z.string().optional(),
+        subscriberUrl: z.string(),
+        usecaseId: z.string(),
+        env: z.enum(['STAGING', 'PRE-PRODUCTION', 'LOGGED-IN']),
+        flowConfigs: z.record(z.string(), FlowSchema),
+        formSubmissions: z
+            .record(
+                z.string(),
+                z.object({
+                    submitted: z.boolean(),
+                    submission_id: z.string().optional(),
+                    timestamp: z.string().optional(),
+                    form_id: z.string().optional(),
+                    formUrl: z.string().optional(),
+                })
+            )
+            .optional(),
+    })
+    .loose();
 
 export const ExpectationSchema = z.object({
     sessionId: z.string(),

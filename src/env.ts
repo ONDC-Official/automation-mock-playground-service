@@ -1,6 +1,7 @@
 export default function validateEnv() {
     const requiredEnvVars = [
         'NODE_ENV',
+        'BASE_URL',
         'API_SERVICE_URL',
         'CONFIG_SERVICE_URL',
         'REDIS_HOST',

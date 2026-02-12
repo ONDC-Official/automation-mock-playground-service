@@ -20,7 +20,7 @@ import {
 import { sendSuccess } from '../utils/res-utils';
 import { computeSubscriber, fetchFlow } from '../utils/flow-utils';
 import { getFlowCompleteStatus } from '../service/flows/flow-mapper';
-import { ActOnFlowService as processFlow } from '../service/flows/process-flow';
+import { actOnFlowService as processFlow } from '../service/flows/process-flow';
 
 import { validateOrThrow } from '../utils/validation';
 import {
@@ -47,19 +47,21 @@ export const flowControllers = (
                 .TransactionalCacheService()
                 .getTransactionData(transactionId, subscriberUrl);
             const flowId = transactionData.flowId;
-            if (!transactionData.sessionId) {
+            const sessionId = transactionData.sessionId;
+            if (!sessionId) {
                 throw new InternalServerError(
                     'Session ID not found in transaction data'
                 );
             }
             const sessionData = await workbenchCache
                 .NpSessionalCacheService()
-                .getSessionData(transactionData.sessionId);
+                .getSessionData(sessionId);
             const flow = fetchFlow(sessionData, flowId);
             attachFlowContext(req, {
                 flow,
                 flowId,
                 transactionId,
+                sessionId,
                 subscriberUrl,
                 apiSessionCache: sessionData,
                 transactionData,
@@ -112,6 +114,7 @@ export const flowControllers = (
                 flow,
                 flowId: body.flow_id,
                 transactionId,
+                sessionId: body.session_id,
                 subscriberUrl: sessionData.subscriberUrl,
                 apiSessionCache: sessionData,
                 domain: sessionData.domain,
@@ -187,6 +190,7 @@ export const flowControllers = (
             attachFlowContext(req, {
                 flow,
                 flowId: transactionData.flowId,
+                sessionId: body.session_id,
                 transactionId: body.transaction_id,
                 subscriberUrl: sessionData.subscriberUrl,
                 apiSessionCache: sessionData,
@@ -243,7 +247,11 @@ export const flowControllers = (
 
             const mockSessionData = await workbenchCache
                 .TxnBusinessCacheService()
-                .getMockSessionData(query.transaction_id, subscriberUrl);
+                .getMockSessionData(
+                    query.transaction_id,
+                    subscriberUrl,
+                    query.session_id
+                );
 
             const flowWorkingState = await workbenchCache
                 .FlowStatusCacheService()
