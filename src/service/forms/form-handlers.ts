@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import { actOnFlowService } from '../flows/process-flow';
 import { IQueueService } from '../../queue/IQueueService';
+import { getBeautifulForm } from '../../utils/form-utils';
 
 export const handleGetFormService = async (
     stepConfig: MockRunnerConfig['steps'][0],
@@ -47,7 +48,7 @@ export const handleGetFormService = async (
         transaction_id: getFormQueryData.transaction_id,
         flow_id: transactionData.flowId,
     };
-    const newContent = ejs.render(htmlContent, {
+    const newContent = ejs.render(getBeautifulForm(htmlContent), {
         actionUrl: submitUrl,
         submissionData: JSON.stringify(submissionData),
     });
@@ -136,87 +137,249 @@ const getSuccessHtml = (submissionID: string) => `
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>Form Submitted Successfully</title>
           <style>
-            body {
-              font-family: system-ui, -apple-system, sans-serif;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              height: 100vh;
+            * {
               margin: 0;
-              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              padding: 0;
+              box-sizing: border-box;
             }
+            
+            body {
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #ebebeb 0%, #c1dce6 50%, #b3e7ff 100%);
+            padding: 1rem;
+            }
+            
             .success-container {
               text-align: center;
               background: white;
-              padding: 3rem;
-              border-radius: 1rem;
-              box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-              max-width: 500px;
+              padding: 3.5rem 3rem;
+              border-radius: 1.25rem;
+              box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+              max-width: 550px;
+              width: 100%;
+              position: relative;
+              overflow: hidden;
             }
+            
+            .success-container::before {
+              content: '';
+              position: absolute;
+              top: 0;
+              left: 0;
+              right: 0;
+              height: 4px;
+              background: linear-gradient(90deg, #0ea5e9, #38bdf8, #7dd3fc);
+            }
+            
             .success-icon {
-              font-size: 4rem;
-              color: #10b981;
-              margin-bottom: 1rem;
-              animation: scaleIn 0.5s ease-out;
-            }
-            h1 {
-              color: #1f2937;
-              margin-bottom: 0.5rem;
-            }
-            p {
-              color: #6b7280;
-              margin-bottom: 2rem;
-            }
-            .submission-id {
-              background: #f3f4f6;
-              padding: 0.75rem;
-              border-radius: 0.5rem;
-              font-family: monospace;
-              font-size: 0.875rem;
-              color: #374151;
+              width: 80px;
+              height: 80px;
+              background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+              border-radius: 50%;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
               margin-bottom: 1.5rem;
+              animation: scaleIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+              box-shadow: 0 10px 25px rgba(14, 165, 233, 0.3);
             }
+            
+            .success-icon::after {
+              content: '✓';
+              color: white;
+              font-size: 3rem;
+              font-weight: bold;
+            }
+            
+            h1 {
+              color: #0f172a;
+              font-size: 1.875rem;
+              font-weight: 700;
+              margin-bottom: 0.5rem;
+              letter-spacing: -0.025em;
+            }
+            
+            .subtitle {
+              color: #0ea5e9;
+              font-size: 0.875rem;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 0.05em;
+              margin-bottom: 1rem;
+            }
+            
+            .description {
+              color: #64748b;
+              font-size: 1rem;
+              margin-bottom: 2rem;
+              line-height: 1.6;
+            }
+            
+            .submission-id {
+              background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+              border: 1px solid #bae6fd;
+              padding: 1rem;
+              border-radius: 0.75rem;
+              font-family: 'Courier New', Courier, monospace;
+              font-size: 0.875rem;
+              color: #0c4a6e;
+              margin-bottom: 1.5rem;
+              position: relative;
+              overflow: hidden;
+            }
+            
+            .submission-id::before {
+              content: '';
+              position: absolute;
+              top: 0;
+              left: -100%;
+              width: 100%;
+              height: 100%;
+              background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+              animation: shimmer 2s infinite;
+            }
+            
+            .submission-label {
+              display: block;
+              font-size: 0.75rem;
+              color: #0369a1;
+              margin-bottom: 0.25rem;
+              font-weight: 600;
+            }
+            
             button {
-              background: #667eea;
+              background: linear-gradient(135deg, #0ea5e9, #38bdf8);
               color: white;
               border: none;
-              padding: 0.75rem 2rem;
-              border-radius: 0.5rem;
+              padding: 0.875rem 2.5rem;
+              border-radius: 0.75rem;
               font-size: 1rem;
+              font-weight: 600;
               cursor: pointer;
-              transition: background 0.2s;
+              transition: all 0.3s ease;
+              box-shadow: 0 4px 15px rgba(14, 165, 233, 0.3);
+              position: relative;
+              overflow: hidden;
             }
+            
+            button::before {
+              content: '';
+              position: absolute;
+              top: 0;
+              left: -100%;
+              width: 100%;
+              height: 100%;
+              background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+              transition: left 0.5s;
+            }
+            
+            button:hover::before {
+              left: 100%;
+            }
+            
             button:hover {
-              background: #5568d3;
+              transform: translateY(-2px);
+              box-shadow: 0 6px 20px rgba(14, 165, 233, 0.4);
             }
+            
+            button:active {
+              transform: translateY(0);
+            }
+            
+            .auto-close-text {
+              font-size: 0.875rem;
+              color: #94a3b8;
+              margin-top: 1.5rem;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 0.5rem;
+            }
+            
+            .countdown {
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              width: 24px;
+              height: 24px;
+              background: #f1f5f9;
+              border-radius: 50%;
+              font-weight: 600;
+              color: #0ea5e9;
+              font-size: 0.75rem;
+            }
+            
             @keyframes scaleIn {
-              from {
-                transform: scale(0);
+              0% {
+                transform: scale(0) rotate(-180deg);
+                opacity: 0;
               }
+              100% {
+                transform: scale(1) rotate(0deg);
+                opacity: 1;
+              }
+            }
+            
+            @keyframes shimmer {
               to {
-                transform: scale(1);
+                left: 100%;
+              }
+            }
+            
+            @media (max-width: 640px) {
+              .success-container {
+                padding: 2.5rem 1.5rem;
+              }
+              
+              h1 {
+                font-size: 1.5rem;
+              }
+              
+              .success-icon {
+                width: 70px;
+                height: 70px;
+              }
+              
+              .success-icon::after {
+                font-size: 2.5rem;
               }
             }
           </style>
           <script>
-            // Auto-close after 5 seconds
-            setTimeout(function() {
-              window.close();
-            }, 5000);
+            let countdown = 5;
+            const countdownElement = document.getElementById('countdown');
+            
+            const timer = setInterval(function() {
+              countdown--;
+              if (countdownElement) {
+                countdownElement.textContent = countdown;
+              }
+              if (countdown <= 0) {
+                clearInterval(timer);
+                window.close();
+              }
+            }, 1000);
           </script>
         </head>
         <body>
           <div class="success-container">
-            <div class="success-icon">✓</div>
+            <div class="success-icon"></div>
             <h1>Form Submitted Successfully!</h1>
-            <p>Your form has been submitted and the flow will continue automatically.</p>
+            <div class="subtitle">ONDC Protocol Workbench Dynamic Forms</div>
+            <p class="description">Your form has been submitted and the flow will continue automatically.</p>
             <div class="submission-id">
-              Submission ID: ${submissionID}
+              <span class="submission-label">Submission ID</span>
+              ${submissionID}
             </div>
-            <p style="font-size: 0.875rem; color: #9ca3af;">
-              This window will close automatically in 5 seconds...
-            </p>
             <button onclick="window.close()">Close Window</button>
+            <p class="auto-close-text">
+              Auto-closing in <span class="countdown" id="countdown">5</span> seconds
+            </p>
           </div>
         </body>
         </html>

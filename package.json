@@ -22,7 +22,7 @@
     },
     "dependencies": {
         "@ondc/automation-logger": "^1.1.0",
-        "@ondc/automation-mock-runner": "^1.3.8",
+        "@ondc/automation-mock-runner": "^1.3.10",
         "amqplib": "^0.10.9",
         "axios": "^1.13.2",
         "cors": "^2.8.5",
