@@ -65,6 +65,16 @@ export function createGeneratePayloadJobHandler(
                 txnMockData
             );
             if (genOutput.success === false) {
+                logger.error(
+                    'Mock payload generation failed',
+                    {
+                        transactionId: data.flowContext.transactionId,
+                        flowId: data.flowContext.flowId,
+                        actionId: data.actionMeta.actionId,
+                        result: genOutput,
+                    },
+                    genOutput.error
+                );
                 return {
                     success: true,
                     message:
