@@ -124,6 +124,7 @@ jobs:
                         -e RABBITMQ_URL=${{ vars.RABBITMQ_URL }} \
                         -e LOKI_HOST=${{ vars.LOKI_HOST }} \
                         -e SERVICE_NAME=ondc-playground-mock \
+                        -e BASE_URL=${{ vars.BASE_URL }}
                         $IMAGE_NAME_LOWER
 
                       # Clean up dangling images
