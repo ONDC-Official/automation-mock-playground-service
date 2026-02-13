@@ -36,3 +36,18 @@ export type MockRequest = {
     };
     body?: Record<string, unknown>;
 };
+
+export const getFormQuerySchema = z.object({
+    session_id: z.string(),
+    transaction_id: z.string(),
+    direct: z.coerce.boolean().optional().default(false),
+});
+
+export type GetFormQuery = z.infer<typeof getFormQuerySchema>;
+
+export const submitFormQuerySchema = z.object({
+    session_id: z.string(),
+    transaction_id: z.string(),
+});
+
+export type SubmitFormQuery = z.infer<typeof submitFormQuerySchema>;

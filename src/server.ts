@@ -5,7 +5,6 @@ import logger from '@ondc/automation-logger';
 import { sendError, sendSuccess } from './utils/res-utils';
 
 import { globalErrorHandler } from './middlewares/error-handler';
-import { requireJsonContent } from './middlewares/http-validations';
 import router from './routes';
 import { requestLogger, responseLogger } from './middlewares/http-logger';
 
@@ -36,8 +35,8 @@ const createServer = (): Application => {
         }
     });
 
-    app.use(requireJsonContent);
     app.use(express.json({ limit: '3mb' }));
+    app.use(express.urlencoded({ extended: true }));
 
     const base = '/mock/playground';
     app.use(`${base}`, router);

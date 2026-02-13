@@ -2,8 +2,15 @@ import { IQueueService } from '../../queue/IQueueService';
 import { FlowContext } from '../../types/process-flow-types';
 import logger from '@ondc/automation-logger';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
-import { GenerateMockPayloadJobParams } from '../jobs/generate-response';
+import {
+    GENERATE_PAYLOAD_JOB,
+    GenerateMockPayloadJobParams,
+} from '../jobs/generate-response';
 import { getNextActionMetaData } from './flow-mapper';
+import {
+    API_SERVICE_FORM_REQUEST_JOB,
+    ApiServiceFormRequestJobParams,
+} from '../jobs/api-service-form-request';
 
 export type ActionUponFlowResponse = {
     success: boolean;
@@ -13,7 +20,7 @@ export type ActionUponFlowResponse = {
     inputs?: unknown;
 };
 
-export async function ActOnFlowService(
+export async function actOnFlowService(
     params: FlowContext,
     workbenchCache: WorkbenchCacheServiceType,
     queueService: IQueueService
@@ -40,7 +47,11 @@ export async function ActOnFlowService(
     }
     const businessCache = await workbenchCache
         .TxnBusinessCacheService()
-        .getMockSessionData(params.transactionId, params.subscriberUrl);
+        .getMockSessionData(
+            params.transactionId,
+            params.subscriberUrl,
+            params.sessionId
+        );
 
     const latestMeta = getNextActionMetaData(
         params.transactionData,
@@ -63,10 +74,7 @@ export async function ActOnFlowService(
         };
     }
 
-    if (
-        latestMeta.actionType === 'HTML_FORM' ||
-        latestMeta.actionType === 'DYNAMIC_FORM'
-    ) {
+    if (latestMeta.actionType === 'HTML_FORM') {
         return {
             success: false,
             message:
@@ -76,8 +84,58 @@ export async function ActOnFlowService(
 
     if (
         latestMeta.status === 'RESPONDING' ||
-        latestMeta.status === 'INPUT-REQUIRED'
+        latestMeta.status === 'INPUT-REQUIRED' ||
+        latestMeta.status === 'WAITING-SUBMISSION'
     ) {
+        await workbenchCache
+            .FlowStatusCacheService()
+            .setFlowStatus(
+                params.transactionId,
+                params.subscriberUrl,
+                'WORKING'
+            );
+
+        if (latestMeta.actionType === 'DYNAMIC_FORM') {
+            if (
+                !params.inputs ||
+                (params.inputs as Record<string, unknown>).submission_id ===
+                    undefined
+            ) {
+                throw new Error(
+                    'submission_id is required in inputs to proceed dynamic form'
+                );
+            }
+            const submissionId = (params.inputs as Record<string, unknown>)
+                .submission_id as string;
+
+            await workbenchCache
+                .TxnBusinessCacheService()
+                .addFormSubmissionId(
+                    params.transactionId,
+                    params.subscriberUrl,
+                    params.transactionData.sessionId!,
+                    latestMeta.actionId,
+                    submissionId
+                );
+            const formParams: ApiServiceFormRequestJobParams = {
+                domain: params.domain,
+                version: params.version,
+                subscriberUrl: params.subscriberUrl,
+                transactionId: params.transactionId,
+                formActionId: latestMeta.actionId,
+                formType: 'DYNAMIC_FORM',
+                submissionId: submissionId,
+            };
+            const jobId = await queueService.enqueue(
+                API_SERVICE_FORM_REQUEST_JOB,
+                formParams
+            );
+            return {
+                success: true,
+                message: 'Form submission received, sending to API service',
+                jobId,
+            };
+        }
         businessCache.user_inputs = params.inputs as Record<string, unknown>;
         logger.info(
             `Enqueuing job to generate payload for transaction: ${params.transactionId}`
@@ -87,15 +145,8 @@ export async function ActOnFlowService(
             inputs: params.inputs,
             actionMeta: latestMeta,
         };
-        await workbenchCache
-            .FlowStatusCacheService()
-            .setFlowStatus(
-                params.transactionId,
-                params.subscriberUrl,
-                'WORKING'
-            );
         const jobId = await queueService.enqueue(
-            'GENERATE_PAYLOAD_JOB',
+            GENERATE_PAYLOAD_JOB,
             queParams
         );
         return {

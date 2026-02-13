@@ -5,7 +5,10 @@ import {
 } from '../../types/mock-runner-types';
 import { fetchMockRunnerConfigFromService } from '../../utils/runner-utils';
 
-export const newMockRunnerConfigCache = (cache: ICacheService) => {
+export const newMockRunnerConfigCache = (
+    cache1: ICacheService,
+    cache0: ICacheService
+) => {
     const createKey = (
         domain: string,
         version?: string,
@@ -20,19 +23,36 @@ export const newMockRunnerConfigCache = (cache: ICacheService) => {
             domain: string,
             version: string,
             flowId: string,
-            usecaseId: string
+            usecaseId: string,
+            sessionId?: string
         ): Promise<MockRunnerConfig> => {
-            const key = createKey(domain, version, flowId, usecaseId);
-            let config = await cache.get(key, MockRunnerConfigSchema);
-            if (config == null) {
-                config = await fetchMockRunnerConfigFromService(
-                    domain,
-                    version,
-                    flowId,
-                    usecaseId
+            let config: MockRunnerConfig | null = null;
+            if (usecaseId === 'PLAYGROUND-FLOW') {
+                const runtimeKey = 'PLAYGROUND_' + sessionId;
+                const val = await cache0.get(
+                    runtimeKey,
+                    MockRunnerConfigSchema
                 );
-                await cache.set(key, config, MockRunnerConfigSchema);
+                if (val == null) {
+                    throw new Error(
+                        `No config found in runtime cache for session ${sessionId}`
+                    );
+                }
+                config = val;
+            } else {
+                const key = createKey(domain, version, flowId, usecaseId);
+                config = await cache1.get(key, MockRunnerConfigSchema);
+                if (config == null) {
+                    config = await fetchMockRunnerConfigFromService(
+                        domain,
+                        version,
+                        flowId,
+                        usecaseId
+                    );
+                    await cache1.set(key, config, MockRunnerConfigSchema);
+                }
             }
+
             let apiServiceUrl =
                 process.env.API_SERVICE_URL ||
                 'https://dev-automation.ondc.org/api-service';
@@ -48,7 +68,7 @@ export const newMockRunnerConfigCache = (cache: ICacheService) => {
         },
         createKey: createKey,
         deletePattern: async (pattern: string): Promise<number> => {
-            return cache.deletePattern(pattern);
+            return cache1.deletePattern(pattern);
         },
     };
 };

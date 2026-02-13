@@ -15,6 +15,7 @@ import {
     MockSessionCache,
     MockStatusCode,
 } from '../../types/mock-service-types';
+import { getReferenceData } from '../../utils/flow-utils';
 
 export function getNextActionMetaData(
     transactionData: TransactionCache,
@@ -50,10 +51,11 @@ export function getFlowCompleteStatus(
             new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
     const subscriberType = transactionData.subscriberType;
+    const refData = getReferenceData(mockSessionData, flow);
     const mappedFlow: FlowMap = {
         sequence: [],
         missedSteps: [],
-        reference_data: {},
+        reference_data: refData,
     };
     const addedSequence = mockSessionData?.MORE_SEQUENCE || [];
     const flowSequence = [...flow.sequence, ...addedSequence];

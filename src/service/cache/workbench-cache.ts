@@ -54,9 +54,34 @@ const createNpSessionalCache = (cache: ICacheService) => {
         }
         return data;
     };
+    const updateSessionWithFormSubmission = async (
+        sessionID: string,
+        transactionID: string,
+        submissionID: string,
+        formID: string
+    ) => {
+        const formKey = `${transactionID}_${formID}`;
+        const sessionData = await getSessionData(sessionID);
+        if (!sessionData.formSubmissions) {
+            sessionData.formSubmissions = {};
+        }
+        sessionData.formSubmissions[formKey] = {
+            submission_id: submissionID,
+            timestamp: new Date().toISOString(),
+            form_id: formID,
+            formUrl: formID,
+            submitted: true,
+        };
+        await cache.set(sessionID, sessionData, SessionCacheSchema);
+        logger.info(
+            `Updated session data with form submission for session ID: ${sessionID}, transaction ID: ${transactionID}, form ID: ${formID}`,
+            { sessionData }
+        );
+    };
 
     return {
         getSessionData,
+        updateSessionWithFormSubmission,
     };
 };
 
@@ -70,17 +95,27 @@ const createTxnBusinessCache = (cache: ICacheService) => {
 
     const getMockSessionData = async (
         transactionID: string,
-        subscriberURL: string
+        subscriberURL: string,
+        sessionId: string
     ) => {
         const key = createMockSessionKey(transactionID, subscriberURL);
+        logger.debug('Fetching mock session data with key', { key });
         if ((await cache.exists(key)) === false) {
+            logger.debug(
+                'No existing mock session data found, creating new entry',
+                { key }
+            );
             const data = {
+                transactionId: [transactionID],
                 transaction_id: transactionID,
-                subscriber_url: subscriberURL || null,
+                subscriberUrl: subscriberURL,
+                sessionId: sessionId,
+                mockBaseUrl: process.env.BASE_URL || null,
             };
             return data as MockSessionCache;
         }
         const data = await cache.get(key, MockSessionCacheSchema);
+        logger.debug('Fetched mock session data', { key, data });
         if (!data) {
             throw new Error(
                 `No mock session data found for transaction ID: ${transactionID}`
@@ -127,11 +162,13 @@ const createTxnBusinessCache = (cache: ICacheService) => {
         transactionID: string,
         subscriberURL: string,
         ondcPayload: unknown,
-        saveDataConfig: SaveDataConfig
+        saveDataConfig: SaveDataConfig,
+        sessionId: string
     ) => {
         const currentData = await getMockSessionData(
             transactionID,
-            subscriberURL
+            subscriberURL,
+            sessionId
         );
         const updatedData = await getUpdatedData(
             saveDataConfig['save-data'],
@@ -151,10 +188,47 @@ const createTxnBusinessCache = (cache: ICacheService) => {
         return cache.set(key, data, MockSessionCacheSchema);
     };
 
+    const addFormData = async (
+        transactionID: string,
+        subscriberURL: string,
+        sessionId: string,
+        formID: string,
+        formData: Record<string, unknown>
+    ) => {
+        const sessionKey = createMockSessionKey(transactionID, subscriberURL);
+        const sessionData = await getMockSessionData(
+            transactionID,
+            subscriberURL,
+            sessionId
+        );
+        sessionData.formData = sessionData.formData || {};
+        (sessionData.formData as Record<string, unknown>)[formID] = formData;
+        await cache.set(sessionKey, sessionData, MockSessionCacheSchema);
+    };
+
+    const addFormSubmissionId = async (
+        transactionID: string,
+        subscriberURL: string,
+        sessionId: string,
+        formId: string,
+        submissionId: string
+    ) => {
+        const sessionKey = createMockSessionKey(transactionID, subscriberURL);
+        const sessionData = await getMockSessionData(
+            transactionID,
+            subscriberURL,
+            sessionId
+        );
+        sessionData[formId] = submissionId;
+        await cache.set(sessionKey, sessionData, MockSessionCacheSchema);
+    };
+
     return {
         getMockSessionData,
         saveMockSessionData,
         overwriteMockSessionData,
+        addFormData,
+        addFormSubmissionId,
     };
 };
 

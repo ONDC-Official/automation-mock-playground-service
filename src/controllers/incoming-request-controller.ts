@@ -50,7 +50,11 @@ export function incomingRequestControllers(
                     );
                 const mockSessionData = await workbenchCache
                     .TxnBusinessCacheService()
-                    .getMockSessionData(ctx.transactionId, ctx.subscriberUrl);
+                    .getMockSessionData(
+                        ctx.transactionId,
+                        ctx.subscriberUrl,
+                        ctx.sessionId
+                    );
                 const flowStatusComplete = getFlowCompleteStatus(
                     ctx.transactionData,
                     ctx.flow,
@@ -154,7 +158,8 @@ async function processMatchingRequest(
             ctx.domain,
             ctx.version,
             ctx.flowId,
-            ctx.apiSessionCache.usecaseId
+            ctx.apiSessionCache.usecaseId,
+            ctx.transactionData.sessionId
         );
         const mockRunner = new MockRunner(runnerConfig);
         const validationResult = (
@@ -188,11 +193,15 @@ async function processMatchingRequest(
             getLoggerData(req)
         );
         const saveDataConfig = getSaveDataConfig(runnerConfig, step.actionId);
-        await workbenchCache
-            .TxnBusinessCacheService()
-            .saveMockSessionData(ctx.transactionId, ctx.subscriberUrl, body, {
+        await workbenchCache.TxnBusinessCacheService().saveMockSessionData(
+            ctx.transactionId,
+            ctx.subscriberUrl,
+            body,
+            {
                 'save-data': saveDataConfig,
-            });
+            },
+            ctx.sessionId
+        );
         logger.info(
             `Successfully saved incoming request for action ${step.actionId}`,
             getLoggerData(req)

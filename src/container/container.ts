@@ -23,6 +23,13 @@ import {
     createApiServiceRequestJobHandler,
     SEND_TO_API_SERVICE_JOB,
 } from '../service/jobs/api-service-request';
+import {
+    API_SERVICE_FORM_REQUEST_JOB,
+    apiServiceFormRequestJobComplete,
+    apiServiceFormRequestJobFailed,
+    ApiServiceFormRequestJobParams,
+    createApiServiceFormRequestJobHandler,
+} from '../service/jobs/api-service-form-request';
 
 /**
  * ServiceContainer - Centralized dependency injection container
@@ -89,8 +96,12 @@ class ServiceContainer {
             if (!this._cacheService1) {
                 throw new Error('CacheService1 not initialized');
             }
+            if (!this._cacheService0) {
+                throw new Error('CacheService0 not initialized');
+            }
             this._mockRunnerConfigCache = newMockRunnerConfigCache(
-                this._cacheService1
+                this._cacheService1,
+                this._cacheService0
             );
         }
         return this._mockRunnerConfigCache;
@@ -116,8 +127,12 @@ class ServiceContainer {
 
     public setCacheService1(service: ICacheService): void {
         this._cacheService1 = service;
+        if (!this._cacheService0) {
+            throw new Error('CacheService0 not initialized');
+        }
         this._mockRunnerConfigCache = newMockRunnerConfigCache(
-            this._cacheService1
+            this._cacheService1,
+            this._cacheService0
         );
     }
 
@@ -167,6 +182,10 @@ class ServiceContainer {
             SEND_TO_API_SERVICE_JOB,
             createApiServiceRequestJobHandler()
         );
+        queue.process<ApiServiceFormRequestJobParams>(
+            API_SERVICE_FORM_REQUEST_JOB,
+            createApiServiceFormRequestJobHandler()
+        );
 
         // ? Register event handlers
         queue.on<GenerateMockPayloadJobParams>(
@@ -192,6 +211,16 @@ class ServiceContainer {
             'failed',
             SEND_TO_API_SERVICE_JOB,
             apiServiceRequestJobFailed
+        );
+        queue.on<ApiServiceFormRequestJobParams>(
+            'completed',
+            API_SERVICE_FORM_REQUEST_JOB,
+            apiServiceFormRequestJobComplete
+        );
+        queue.on<ApiServiceFormRequestJobParams>(
+            'failed',
+            API_SERVICE_FORM_REQUEST_JOB,
+            apiServiceFormRequestJobFailed
         );
         return queue;
     }
