@@ -131,6 +131,10 @@ const createTxnBusinessCache = (cache: ICacheService) => {
     ) => {
         const data = existingData as Record<string, unknown>;
         saveDataConfig.latestMessage_id = '$.context.message_id';
+        saveDataConfig.bapUri = '$.context.bap_uri';
+        saveDataConfig.bppUri = '$.context.bpp_uri';
+        saveDataConfig.bppId = '$.context.bpp_id';
+        saveDataConfig.bapId = '$.context.bap_id';
         for (const key in saveDataConfig) {
             try {
                 const path = saveDataConfig[key as keyof typeof saveDataConfig];
