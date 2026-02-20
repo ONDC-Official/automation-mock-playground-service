@@ -88,9 +88,22 @@ export function createGeneratePayloadJobHandler(
                             data.flowContext.subscriberUrl
                         ),
                         error: {
-                            message: genOutput.error?.message,
-                            logs: genOutput.logs,
-                            name: genOutput.error?.name,
+                            code: 'GENERATION_ERROR',
+                            message:
+                                '[MOCK PAYLOAD GENERATION ERROR] PLEASE CONTACT TECH SUPPORT',
+                            paths: genOutput.error?.stack,
+                            tags: [
+                                {
+                                    descriptor: {
+                                        short_desc:
+                                            genOutput.error?.message ||
+                                            'Error details not available',
+                                        long_desc:
+                                            genOutput.error?.stack ||
+                                            'Stack trace not available',
+                                    },
+                                },
+                            ],
                         },
                     },
                 };
