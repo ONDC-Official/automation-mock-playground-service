@@ -95,7 +95,7 @@ jobs:
                   port: ${{ secrets.EC2_SSH_PORT || 22 }}
                   script: |
                       # Login to GHCR
-                      echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+                      # echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
 
                       # Pull latest image from GHCR (convert to lowercase)
                       IMAGE_NAME_LOWER=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" | tr '[:upper:]' '[:lower:]')
