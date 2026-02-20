@@ -112,7 +112,7 @@ export function createGeneratePayloadJobHandler(
             const payload = genOutput.result;
 
             if (payload === undefined) {
-                logger.debug('Generated payload is undefined', {
+                logger.error('Generated payload is undefined', {
                     config: JSON.stringify(mockConfig),
                 });
                 throw new Error('Generated payload is undefined');
