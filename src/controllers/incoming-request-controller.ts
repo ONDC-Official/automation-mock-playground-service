@@ -13,7 +13,6 @@ import { getLoggerData } from '../utils/logger/winston/loggerUtils';
 import { MappedStep } from '../types/mapped-flow-types';
 import logger from '@ondc/automation-logger';
 import { FlowContext } from '../types/process-flow-types';
-import MockRunner from '@ondc/automation-mock-runner';
 import { IQueueService } from '../queue/IQueueService';
 import {
     ApiServiceRequestJobParams,
@@ -161,7 +160,13 @@ async function processMatchingRequest(
             ctx.apiSessionCache.usecaseId,
             ctx.transactionData.sessionId
         );
-        const mockRunner = new MockRunner(runnerConfig);
+        const mockRunner = await mockRunnerCache.getRunnerInstance(
+            ctx.domain,
+            ctx.version,
+            ctx.flowId,
+            ctx.apiSessionCache.usecaseId,
+            ctx.transactionData.sessionId
+        );
         const validationResult = (
             await mockRunner.runValidatePayloadWithSession(
                 step.actionId,

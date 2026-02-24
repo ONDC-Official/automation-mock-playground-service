@@ -1,4 +1,3 @@
-import MockRunner from '@ondc/automation-mock-runner';
 import { IQueueService, QueueJob } from '../../queue/IQueueService';
 import { MappedStep } from '../../types/mapped-flow-types';
 import { FlowContext } from '../../types/process-flow-types';
@@ -32,21 +31,19 @@ export function createGeneratePayloadJobHandler(
 ) {
     return async (data: GenerateMockPayloadJobParams) => {
         try {
-            const { flowId, domain, version } = data.flowContext;
-            const mockConfig = await configCache.getMockRunnerConfig(
-                domain,
-                version,
-                flowId,
-                data.flowContext.apiSessionCache.usecaseId,
-                data.flowContext.transactionData.sessionId
-            );
             logger.debug('Fetched mock runner config', {
                 transactionId: data.flowContext.transactionId,
                 flowId: data.flowContext.flowId,
                 domain: data.flowContext.domain,
                 version: data.flowContext.version,
             });
-            const mockRunner = new MockRunner(mockConfig);
+            const mockRunner = await configCache.getRunnerInstance(
+                data.flowContext.domain,
+                data.flowContext.version,
+                data.flowContext.flowId,
+                data.flowContext.apiSessionCache.usecaseId,
+                data.flowContext.transactionData.sessionId
+            );
             logger.debug('Initialized mock runner', {
                 actionID: data.actionMeta.actionId,
             });
@@ -112,9 +109,7 @@ export function createGeneratePayloadJobHandler(
             const payload = genOutput.result;
 
             if (payload === undefined) {
-                logger.error('Generated payload is undefined', {
-                    config: JSON.stringify(mockConfig),
-                });
+                logger.error('Generated payload is undefined');
                 throw new Error('Generated payload is undefined');
             }
             logger.debug('Generated mock payload', {
