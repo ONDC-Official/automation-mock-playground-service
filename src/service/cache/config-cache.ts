@@ -45,6 +45,45 @@ export const newMockRunnerConfigCache = (
         return `${domain.trim()}::${version?.trim() ?? ''}::${flowId?.trim() ?? ''}::${usecaseId?.trim() ?? ''}`;
     };
 
+    const getMockRunnerConfig = async (
+        domain: string,
+        version: string,
+        flowId: string,
+        usecaseId: string,
+        sessionId?: string
+    ): Promise<MockRunnerConfig> => {
+        let config: MockRunnerConfig | null = null;
+        if (usecaseId === 'PLAYGROUND-FLOW') {
+            const runtimeKey = 'PLAYGROUND_' + sessionId;
+            const val = await cache0.get(runtimeKey, MockRunnerConfigSchema);
+            if (val == null) {
+                throw new Error(
+                    `No config found in runtime cache for session ${sessionId}`
+                );
+            }
+            config = val;
+        } else {
+            const key = createKey(domain, version, flowId, usecaseId);
+            config = await cache1.get(key, MockRunnerConfigSchema);
+            if (config == null) {
+                config = await fetchMockRunnerConfigFromService(
+                    domain,
+                    version,
+                    flowId,
+                    usecaseId
+                );
+                await cache1.set(key, config, MockRunnerConfigSchema);
+            }
+        }
+
+        const { url: apiServiceUrl, ownerId } = resolveApiServiceUrls();
+        config.transaction_data.bap_id = config.transaction_data.bpp_id =
+            ownerId;
+        config.transaction_data.bap_uri = `${apiServiceUrl}/${config.meta.domain}/${config.meta.version}/buyer`;
+        config.transaction_data.bpp_uri = `${apiServiceUrl}/${config.meta.domain}/${config.meta.version}/seller`;
+        return config;
+    };
+
     const getRunnerInstance = async (
         domain: string,
         version: string,
@@ -65,9 +104,12 @@ export const newMockRunnerConfigCache = (
             }
 
             const promise = (async () => {
-                const val = await cache0.get(
-                    runtimeKey,
-                    MockRunnerConfigSchema
+                const val = await getMockRunnerConfig(
+                    domain,
+                    version,
+                    flowId,
+                    usecaseId,
+                    sessionId
                 );
                 if (val == null) {
                     throw new Error(
@@ -93,7 +135,7 @@ export const newMockRunnerConfigCache = (
             }
 
             const promise = (async () => {
-                const config = await fetchMockRunnerConfigFromService(
+                const config = await getMockRunnerConfig(
                     domain,
                     version,
                     flowId,
@@ -111,47 +153,7 @@ export const newMockRunnerConfigCache = (
     };
 
     return {
-        getMockRunnerConfig: async (
-            domain: string,
-            version: string,
-            flowId: string,
-            usecaseId: string,
-            sessionId?: string
-        ): Promise<MockRunnerConfig> => {
-            let config: MockRunnerConfig | null = null;
-            if (usecaseId === 'PLAYGROUND-FLOW') {
-                const runtimeKey = 'PLAYGROUND_' + sessionId;
-                const val = await cache0.get(
-                    runtimeKey,
-                    MockRunnerConfigSchema
-                );
-                if (val == null) {
-                    throw new Error(
-                        `No config found in runtime cache for session ${sessionId}`
-                    );
-                }
-                config = val;
-            } else {
-                const key = createKey(domain, version, flowId, usecaseId);
-                config = await cache1.get(key, MockRunnerConfigSchema);
-                if (config == null) {
-                    config = await fetchMockRunnerConfigFromService(
-                        domain,
-                        version,
-                        flowId,
-                        usecaseId
-                    );
-                    await cache1.set(key, config, MockRunnerConfigSchema);
-                }
-            }
-
-            const { url: apiServiceUrl, ownerId } = resolveApiServiceUrls();
-            config.transaction_data.bap_id = config.transaction_data.bpp_id =
-                ownerId;
-            config.transaction_data.bap_uri = `${apiServiceUrl}/${config.meta.domain}/${config.meta.version}/buyer`;
-            config.transaction_data.bpp_uri = `${apiServiceUrl}/${config.meta.domain}/${config.meta.version}/seller`;
-            return config;
-        },
+        getMockRunnerConfig: getMockRunnerConfig,
         createKey: createKey,
         deletePattern: async (pattern: string): Promise<number> => {
             const regex = new RegExp(
