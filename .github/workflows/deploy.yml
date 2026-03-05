@@ -184,9 +184,9 @@ jobs:
             - name: Deploy release to EC2
               uses: appleboy/ssh-action@v1.0.3
               with:
-                  host: ${{ secrets.EC2_HOST }}
-                  username: ${{ secrets.EC2_USER }}
-                  key: ${{ secrets.EC2_SSH_KEY }}
+                  host: ${{ secrets.EC2_HOST_FIS }}
+                  username: ${{ secrets.EC2_USER_FIS }}
+                  key: ${{ secrets.EC2_SSH_KEY_FIS }}
                   port: ${{ secrets.EC2_SSH_PORT || 22 }}
                   script: |
                       # Pull release image tag from GHCR (convert to lowercase)
