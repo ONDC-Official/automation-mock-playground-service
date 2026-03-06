@@ -52,7 +52,7 @@ COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
 
 # Copy validation schemas and other runtime assets
-COPY --chown=nodejs:nodejs src/validations ./src/validations
+# COPY --chown=nodejs:nodejs src/validations ./src/validations
 
 # Switch to non-root user
 USER nodejs
