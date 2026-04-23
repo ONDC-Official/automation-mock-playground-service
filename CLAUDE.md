@@ -15,9 +15,10 @@ npm run lint:fix     # Auto-fix linting issues
 npm run format       # Prettier formatting
 
 # Testing
-npm run test         # Run all tests
-npm run test:watch   # Watch mode
-npm run test:cov     # With coverage report
+npm run test              # Run all tests
+npm run test:watch        # Watch mode
+npm run test:cov          # With coverage report
+npm run test:multi-instance  # E2E multi-instance via docker-compose (see src/test/E2E)
 
 # Production
 npm run build        # Compile TypeScript to dist/
@@ -26,6 +27,8 @@ npm start            # Run compiled output
 # Docker
 docker-compose up    # Full stack (service + Redis + RabbitMQ)
 ```
+
+Run a single test file: `npx jest path/to/file.test.ts`. Filter by name: `npx jest -t 'name pattern'`.
 
 ## Architecture Overview
 
@@ -59,12 +62,15 @@ Incoming HTTP requests → validation middleware → controller → service laye
 
 ### API Surface
 
-All routes are prefixed `/mock/playground`:
+Business routes prefixed `/mock/playground` (mounted in `src/server.ts`, registered in `src/routes/index.ts`):
 - `POST /flows/new` — start a new transaction flow
 - `POST /flows/proceed` — advance an existing flow
 - `GET /flows/current-status` — get flow status and sequence
 - `POST /manual/:action` — trigger a specific ONDC action
 - `POST /forms/submit` — submit form data
+- `DELETE /backdoor/clear-flows` — clear cached flow configs (query: `domain` req, `version` opt, `flowId` opt)
+
+Ops endpoints mounted at app root (not under `/mock/playground`):
 - `GET /health`, `GET /metrics`, `GET /memory`, `GET /heapdump`
 
 ### Environment Variables
@@ -119,10 +125,6 @@ The resolved HTML stored in session is read back by `getReferenceData` (`src/uti
 
 - `saveMockSessionData(txId, url, payload, saveDataConfig, sessionId)` — **merges** extracted fields from an ONDC payload into session using JSONPath/EVAL expressions from the mock config. Use this for API step data.
 - `overwriteMockSessionData(txId, url, data)` — **replaces** the entire session object. Use this when the whole session needs to be rewritten (e.g. after resolving form HTML).
-
-#### Key rule
-
-`HTML_FORM` is intentionally blocked in `actOnFlowService` (`process-flow.ts:77`) — that entry point handles user-driven "proceed" calls and must not process HTML forms. All HTML form logic lives exclusively in the incoming request middleware (`incoming-request-controller.ts`).
 
 ### Testing
 
