@@ -14,14 +14,15 @@ export const handleGetFormService = async (
     transactionData: TransactionCache,
     getFormQueryData: GetFormQuery,
     formId: string,
-    domain: string
+    domain: string,
+    preferHtml: boolean
 ) => {
     if (stepConfig.api !== 'dynamic_form' && stepConfig.api != 'html_form') {
         throw new Error('Invalid API type for form rendering');
     }
     if (stepConfig.api === 'dynamic_form') {
         const formRenderUrl = `${process.env.BASE_URL}/forms/${domain}/${formId}?transaction_id=${getFormQueryData.transaction_id}&session_id=${getFormQueryData.session_id}&direct=true`;
-        if (!getFormQueryData.direct) {
+        if (!getFormQueryData.direct && !preferHtml) {
             return {
                 dataType: 'json',
                 data: {
