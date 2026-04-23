@@ -63,6 +63,10 @@ export function createGeneratePayloadJobHandler(
             } else {
                 txnMockData.bppUri = data.flowContext.subscriberUrl;
             }
+            const finvuUrl = process.env.FINVU_AA_SERVICE_URL;
+            if (finvuUrl) {
+                txnMockData.finvuUrl = finvuUrl;
+            }
             const genOutput = await mockRunner.runGeneratePayloadWithSession(
                 data.actionMeta.actionId,
                 txnMockData

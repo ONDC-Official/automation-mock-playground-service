@@ -3,6 +3,7 @@ import { createInMemoryQueue } from '../../queue/InMemoryQueue';
 import logger from '@ondc/automation-logger';
 import ServiceContainer from '../container';
 import Redis from 'ioredis';
+import MockRunner from '@ondc/automation-mock-runner';
 
 export function InitMainContainer() {
     logger.info('Initializing main container...');
@@ -44,5 +45,12 @@ export function InitMainContainer() {
 
     const queue = createInMemoryQueue();
     container.setQueueService(queue);
+
+    const fnvuUrl = process.env.FINVU_AA_SERVICE_URL;
+    if (fnvuUrl) {
+        MockRunner.initSharedRunner({
+            allowedFetchBaseUrls: [fnvuUrl],
+        });
+    }
     logger.info('Main container initialized successfully');
 }
