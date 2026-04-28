@@ -193,10 +193,8 @@ async function processMatchingRequest(
                 getLoggerData(req),
                 validationData
             );
-            const errMessage =
-                validationData.error instanceof Error
-                    ? validationData.error.message
-                    : String(validationData.error);
+            const err = validationData.error;
+            const errMessage = `${err.name}: ${err.message}${err.stack ? `\n${err.stack}` : ''}`;
             validationResult = {
                 valid: false,
                 code: 'VALIDATION_FUNCTION_ERROR',
