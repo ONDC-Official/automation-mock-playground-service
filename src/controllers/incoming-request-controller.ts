@@ -187,7 +187,7 @@ async function processMatchingRequest(
             description?: string;
         };
 
-        if (validationData.error) {
+        if (validationData.success == false && validationData.error) {
             logger.error(
                 'validation function failed',
                 getLoggerData(req),
