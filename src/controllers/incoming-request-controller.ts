@@ -284,7 +284,7 @@ async function processMatchingRequest(
 }
 
 async function handleValidationFailure(
-    validationResult: { code?: string; message?: string },
+    validationResult: { code?: string; description?: string },
     step: MappedStep,
     body: Record<string, unknown>,
     subsUrl: string,
@@ -292,7 +292,7 @@ async function handleValidationFailure(
     ctx: FlowContext
 ) {
     logger.info(
-        `Validation failed for action: ${step.actionId}, Message: ${validationResult.message}`
+        `Validation failed for action: ${step.actionId}, Message: ${validationResult.description}`
     );
 
     const action = step.actionType.startsWith('on_')
@@ -309,7 +309,7 @@ async function handleValidationFailure(
         },
         error: {
             code: validationResult.code || 'VALIDATION_ERROR',
-            message: validationResult.message || 'Validation failed',
+            message: validationResult.description || 'Validation failed',
         },
     };
 
