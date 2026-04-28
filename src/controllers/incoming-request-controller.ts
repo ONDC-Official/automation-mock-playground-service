@@ -26,6 +26,7 @@ import {
 } from '../service/jobs/api-service-form-request';
 import { resolveFormActions, validateFormHtml } from '../utils/form-utils';
 import axios from 'axios';
+import MockRunner from '@ondc/automation-mock-runner';
 
 export function incomingRequestControllers(
     workbenchCache: WorkbenchCacheServiceType,
@@ -175,6 +176,17 @@ async function processMatchingRequest(
             ctx.apiSessionCache.usecaseId,
             ctx.transactionData.sessionId
         );
+
+        const validatorFunctionString = mockRunner
+            .getConfig()
+            .steps.find(s => s.action_id === step.actionId)?.mock.validate;
+        const decoded = MockRunner.decodeBase64(validatorFunctionString || '');
+        logger.info(
+            `Decoded validation function for action ${step.actionId}`,
+            getLoggerData(req),
+            { length: decoded.length, functionStr: decoded }
+        );
+
         const validationData = await mockRunner.runValidatePayloadWithSession(
             step.actionId,
             body,
