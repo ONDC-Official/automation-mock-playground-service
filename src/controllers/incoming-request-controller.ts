@@ -181,20 +181,34 @@ async function processMatchingRequest(
             mockSessionData
         );
 
-        if (validationData.error) {
-            logger.error(
-                'validation function failled',
-                getLoggerData(req),
-                validationData.error
-            );
-            throw new Error('Validation function failed');
-        }
-
-        const validationResult = validationData.result as {
+        let validationResult: {
             valid: boolean;
             code?: string;
             description?: string;
         };
+
+        if (validationData.error) {
+            logger.error(
+                'validation function failed',
+                getLoggerData(req),
+                validationData
+            );
+            const errMessage =
+                validationData.error instanceof Error
+                    ? validationData.error.message
+                    : String(validationData.error);
+            validationResult = {
+                valid: false,
+                code: 'VALIDATION_FUNCTION_ERROR',
+                description: errMessage,
+            };
+        } else {
+            validationResult = validationData.result as {
+                valid: boolean;
+                code?: string;
+                description?: string;
+            };
+        }
 
         if (!validationResult.valid) {
             logger.error(
