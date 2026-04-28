@@ -128,6 +128,7 @@ jobs:
                         -e LOKI_HOST=${{ vars.LOKI_HOST }} \
                         -e SERVICE_NAME=ondc-playground-mock \
                         -e BASE_URL=${{ vars.BASE_URL }} \
+                        -e FINVU_AA_SERVICE_URL=${{ vars.FINVU_AA_SERVICE_URL }} \
                         $IMAGE_NAME_LOWER
 
                       # Clean up dangling images
@@ -218,6 +219,7 @@ jobs:
                         -e LOKI_HOST=${{ vars.LOKI_HOST }} \
                         -e SERVICE_NAME=${{ env.SERVICE_NAME }} \
                         -e BASE_URL=${{ env.BASE_URL }} \
+                        -e FINVU_AA_SERVICE_URL=${{ vars.FINVU_AA_SERVICE_URL }} \
                         $IMAGE_NAME_LOWER
 
                       # Clean up dangling images

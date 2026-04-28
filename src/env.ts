@@ -6,6 +6,7 @@ export default function validateEnv() {
         'CONFIG_SERVICE_URL',
         'REDIS_HOST',
         'REDIS_PORT',
+        // 'FINVU_AA_SERVICE_URL',
     ];
     for (const varName of requiredEnvVars) {
         if (!process.env[varName]) {

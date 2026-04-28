@@ -55,12 +55,28 @@ export const newFormControllers = (
                     data.session_id
                 );
                 const stepConfig = getConfigStep(runnerConfig, formId);
+                const acceptHeader = req.headers.accept;
+                let preferHtml = false;
+                if (!acceptHeader) {
+                    logger.info(
+                        'getFormController: no Accept header, defaulting to JSON response',
+                        {
+                            session_id: data.session_id,
+                            transaction_id: data.transaction_id,
+                            formId,
+                            domain,
+                        }
+                    );
+                } else {
+                    preferHtml = req.accepts(['html', 'json']) === 'html';
+                }
                 const formResponse = await handleGetFormService(
                     stepConfig,
                     transactionData,
                     data,
                     formId,
-                    domain
+                    domain,
+                    preferHtml
                 );
                 if (formResponse.dataType === 'json') {
                     sendSuccess(res, formResponse.data);
