@@ -26,6 +26,7 @@ import {
 } from '../service/jobs/api-service-form-request';
 import { resolveFormActions, validateFormHtml } from '../utils/form-utils';
 import axios from 'axios';
+import MockRunner from '@ondc/automation-mock-runner';
 
 export function incomingRequestControllers(
     workbenchCache: WorkbenchCacheServiceType,
@@ -175,6 +176,17 @@ async function processMatchingRequest(
             ctx.apiSessionCache.usecaseId,
             ctx.transactionData.sessionId
         );
+
+        const validatorFunctionString = mockRunner
+            .getConfig()
+            .steps.find(s => s.action_id === step.actionId)?.mock.validate;
+        const decoded = MockRunner.decodeBase64(validatorFunctionString || '');
+        logger.info(
+            `Decoded validation function for action ${step.actionId}`,
+            getLoggerData(req),
+            { length: decoded.length, functionStr: decoded }
+        );
+
         const validationData = await mockRunner.runValidatePayloadWithSession(
             step.actionId,
             body,
@@ -187,16 +199,14 @@ async function processMatchingRequest(
             description?: string;
         };
 
-        if (validationData.error) {
+        if (validationData.success == false && validationData.error) {
             logger.error(
                 'validation function failed',
                 getLoggerData(req),
                 validationData
             );
-            const errMessage =
-                validationData.error instanceof Error
-                    ? validationData.error.message
-                    : String(validationData.error);
+            const err = validationData.error;
+            const errMessage = `${err.name}: ${err.message} ${err.stack ? `\n${err.stack}` : ''}`;
             validationResult = {
                 valid: false,
                 code: 'VALIDATION_FUNCTION_ERROR',
@@ -286,7 +296,7 @@ async function processMatchingRequest(
 }
 
 async function handleValidationFailure(
-    validationResult: { code?: string; message?: string },
+    validationResult: { code?: string; description?: string },
     step: MappedStep,
     body: Record<string, unknown>,
     subsUrl: string,
@@ -294,7 +304,7 @@ async function handleValidationFailure(
     ctx: FlowContext
 ) {
     logger.info(
-        `Validation failed for action: ${step.actionId}, Message: ${validationResult.message}`
+        `Validation failed for action: ${step.actionId}, Message: ${validationResult.description}`
     );
 
     const action = step.actionType.startsWith('on_')
@@ -311,7 +321,7 @@ async function handleValidationFailure(
         },
         error: {
             code: validationResult.code || 'VALIDATION_ERROR',
-            message: validationResult.message || 'Validation failed',
+            message: validationResult.description || 'Validation failed',
         },
     };
 
