@@ -194,7 +194,7 @@ async function processMatchingRequest(
                 validationData
             );
             const err = validationData.error;
-            const errMessage = `${err.name}: ${err.message}${err.stack ? `\n${err.stack}` : ''}`;
+            const errMessage = `${err.name}: ${err.message} ${err.stack ? `\n${err.stack}` : ''}`;
             validationResult = {
                 valid: false,
                 code: 'VALIDATION_FUNCTION_ERROR',
