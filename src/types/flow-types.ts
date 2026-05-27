@@ -37,6 +37,7 @@ export const FlowSchema = z.object({
     title: z.string().optional(),
     description: z.string().optional(),
     sequence: z.array(SequenceStepSchema),
+    extraSequence: z.array(SequenceStepSchema).optional(),
 });
 
 export const DomainSchema = z.object({

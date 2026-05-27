@@ -244,6 +244,14 @@ const flowStatusCache = (cache: ICacheService) => {
         return `FLOW_STATUS_${transactionId}::${subscriberUrl}`;
     };
 
+    const createExtraFlowStatusCacheKey = (
+        transactionId: string,
+        subscriberUrl: string,
+        extraStepKey: string
+    ): string => {
+        return `EXTRA_FLOW_STATUS_${transactionId}::${subscriberUrl}::${extraStepKey}`;
+    };
+
     const getFlowStatus = async (
         transactionId: string,
         subscriberUrl: string,
@@ -305,10 +313,84 @@ const flowStatusCache = (cache: ICacheService) => {
         }
     };
 
+    const getExtraFlowStatus = async (
+        transactionId: string,
+        subscriberUrl: string,
+        extraStepKey: string,
+        loggingMeta: unknown
+    ): Promise<MockFlowStatusCache> => {
+        try {
+            const key = createExtraFlowStatusCacheKey(
+                transactionId,
+                subscriberUrl,
+                extraStepKey
+            );
+            const cached = await cache.get(key, MockFlowStatusCacheSchema);
+            if (cached) {
+                return cached;
+            }
+            return { status: 'AVAILABLE' };
+        } catch (error) {
+            logger.error(
+                'Error in getting extra flow status [fallback = AVAILABLE]',
+                loggingMeta,
+                error
+            );
+            return { status: 'AVAILABLE' };
+        }
+    };
+
+    const setExtraFlowStatus = async (
+        transactionId: string,
+        subscriberUrl: string,
+        extraStepKey: string,
+        flowStatus: MockStatusCode
+    ): Promise<void> => {
+        try {
+            const key = createExtraFlowStatusCacheKey(
+                transactionId,
+                subscriberUrl,
+                extraStepKey
+            );
+
+            await cache.set(
+                key,
+                { status: flowStatus },
+                MockFlowStatusCacheSchema,
+                60 * 60 * 5
+            );
+        } catch (error) {
+            logger.error('Error in setting extra flow status', error);
+        }
+    };
+
+    const deleteExtraFlowStatus = async (
+        transactionId?: string,
+        subscriberUrl?: string,
+        extraStepKey?: string
+    ): Promise<void> => {
+        if (!transactionId || !subscriberUrl || !extraStepKey) return;
+
+        try {
+            const key = createExtraFlowStatusCacheKey(
+                transactionId,
+                subscriberUrl,
+                extraStepKey
+            );
+
+            await cache.delete(key);
+        } catch (error) {
+            logger.error('Error in deleting extra flow status', error);
+        }
+    };
+
     return {
         getFlowStatus,
         setFlowStatus,
         deleteFlowStatus,
+        getExtraFlowStatus,
+        setExtraFlowStatus,
+        deleteExtraFlowStatus,
     };
 };
 

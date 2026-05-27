@@ -198,6 +198,7 @@ export const flowControllers = (
                 domain: sessionData.domain,
                 version: sessionData.version,
                 inputs: body.inputs,
+                trigger_extra: body.trigger_extra,
             });
 
             next();

@@ -29,6 +29,7 @@ export type ReducedApiList = ReducedApiData[];
 export interface FlowMap {
     sequence: MappedStep[];
     missedSteps: MappedStep[];
+    extraSteps?: MappedStep[];
     reference_data?: Record<string, unknown>;
 }
 export interface MappedStep {
@@ -54,4 +55,6 @@ export interface MappedStep {
     label?: string;
     force_proceed?: boolean;
     repeat?: number;
+    isExtraStep?: boolean;
+    awaitingMessageId?: string;
 }

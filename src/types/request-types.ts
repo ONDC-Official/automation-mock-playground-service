@@ -19,6 +19,7 @@ export const proceedWithFlowBodySchema = z.object({
     transaction_id: z.string(),
     session_id: z.string(),
     inputs: z.any().optional(),
+    trigger_extra: z.string().optional(),
 });
 
 export type ProceedWithFlowBody = z.infer<typeof proceedWithFlowBodySchema>;
