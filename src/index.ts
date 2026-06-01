@@ -1,19 +1,10 @@
-import validateEnv from './env';
-import { InitMainContainer } from './container/implementations/main';
-import config from './config/server-config';
-import { startMemoryProfiling } from './utils/memory-profiler';
+// Bootstrap container as a side-effect. MUST be the first import so it runs
+// before server.ts loads (which transitively imports route files that read
+// from the container at module load time).
+import './container/implementations/main';
 
-// Initialize environment and container FIRST, before any imports that use them
-validateEnv();
-InitMainContainer();
-
-// Start memory profiling (logs every 60 s, adjustable via MEMORY_PROFILER_INTERVAL_MS)
-startMemoryProfiling(
-    parseInt(process.env.MEMORY_PROFILER_INTERVAL_MS || '60000')
-);
-
-// Now safe to import server which imports routes
 import createServer from './server';
+import config from './config/server-config';
 import logger from '@ondc/automation-logger';
 
 const app = createServer();

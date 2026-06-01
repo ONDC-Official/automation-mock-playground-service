@@ -3,11 +3,11 @@ import cors from 'cors';
 import { healthMonitor } from './utils/health-monitor';
 import logger from '@ondc/automation-logger';
 import { sendError, sendSuccess } from './utils/res-utils';
-import promClient from 'prom-client';
-import {
-    collectMemorySnapshot,
-    takeHeapSnapshot,
-} from './utils/memory-profiler';
+// import promClient from 'prom-client';
+// import {
+//     collectMemorySnapshot,
+//     takeHeapSnapshot,
+// } from './utils/memory-profiler';
 
 import { globalErrorHandler } from './middlewares/error-handler';
 import router from './routes';
@@ -22,23 +22,23 @@ const createServer = (): Application => {
     app.use(responseLogger);
     app.use(cors());
 
-    // Prometheus metrics endpoint
-    app.get('/metrics', async (_req: Request, res: Response) => {
-        res.set('Content-Type', promClient.register.contentType);
-        res.end(await promClient.register.metrics());
-    });
+    // // Prometheus metrics endpoint
+    // app.get('/metrics', async (_req: Request, res: Response) => {
+    //     res.set('Content-Type', promClient.register.contentType);
+    //     res.end(await promClient.register.metrics());
+    // });
 
-    // Detailed memory snapshot endpoint
-    app.get('/memory', (_req: Request, res: Response) => {
-        const snapshot = collectMemorySnapshot();
-        return sendSuccess(res, snapshot);
-    });
+    // // Detailed memory snapshot endpoint
+    // app.get('/memory', (_req: Request, res: Response) => {
+    //     const snapshot = collectMemorySnapshot();
+    //     return sendSuccess(res, snapshot);
+    // });
 
-    // Heap dump endpoint — writes a .heapsnapshot file, open in Chrome DevTools → Memory tab
-    app.get('/heapdump', (_req: Request, res: Response) => {
-        const filepath = takeHeapSnapshot('heap-dumps');
-        return sendSuccess(res, { file: filepath });
-    });
+    // // Heap dump endpoint — writes a .heapsnapshot file, open in Chrome DevTools → Memory tab
+    // app.get('/heapdump', (_req: Request, res: Response) => {
+    //     const filepath = takeHeapSnapshot('heap-dumps');
+    //     return sendSuccess(res, { file: filepath });
+    // });
 
     // Health Check - Before JSON validation middleware
     app.get('/health', async (req: Request, res: Response) => {

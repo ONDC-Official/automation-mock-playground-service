@@ -14,6 +14,12 @@ export interface FlowContext {
     domain: string;
     version: string;
     inputs?: unknown;
+    /**
+     * Names an entry from `flow.extraSequence` by `key`. When set, process-flow
+     * synthesizes a dispatch target for that step and routes `inputs` (if any) to it.
+     * Auto-dispatch of sequenceNext + actionable extras still happens in parallel.
+     */
+    trigger_extra?: string;
 }
 
 export function attachFlowContext(req: ApiRequest, context: FlowContext) {
