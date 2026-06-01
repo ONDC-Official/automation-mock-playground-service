@@ -89,8 +89,20 @@ export async function actOnFlowService(
         flowStatus.status === 'AVAILABLE'
     ) {
         if (sequenceNext.status === 'INPUT-REQUIRED') {
-            if (!hasTriggerExtra && hasInputs) {
-                targets.push({ step: sequenceNext, consumesInputs: true });
+            const inputsObj = params.inputs as
+                | Record<string, unknown>
+                | undefined;
+            // Manual steps need a matching { id } trigger and never feed it to
+            // the runner; non-manual (form) INPUT-REQUIRED keeps prior behavior.
+            const manualReady =
+                sequenceNext.manual === true
+                    ? inputsObj?.id === sequenceNext.actionId
+                    : hasInputs;
+            if (!hasTriggerExtra && manualReady) {
+                targets.push({
+                    step: sequenceNext,
+                    consumesInputs: sequenceNext.manual !== true,
+                });
             } else {
                 sequenceAwaitingInputs = sequenceNext;
             }
@@ -123,7 +135,8 @@ export async function actOnFlowService(
                 message: `trigger_extra: unknown extras key "${params.trigger_extra}"`,
             };
         }
-        if (step.owner !== params.transactionData.subscriberType) {
+        // only allow counter party triggers
+        if (step.owner === params.transactionData.subscriberType) {
             return {
                 success: false,
                 message: `trigger_extra: step "${step.key}" is owned by ${step.owner}, not ${params.transactionData.subscriberType}`,

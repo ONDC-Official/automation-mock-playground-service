@@ -30,6 +30,7 @@ export const SequenceStepSchema = z.object({
     label: z.string().optional(),
     force_proceed: z.boolean().optional(),
     repeat: z.number().optional(),
+    manual: z.boolean().optional(),
 });
 
 export const FlowSchema = z.object({

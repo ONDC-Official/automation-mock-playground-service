@@ -85,6 +85,11 @@ const createNpSessionalCache = (cache: ICacheService) => {
     };
 };
 
+/**
+ * cache used in mock service for saving mock related data
+ * @param cache ICacheService instance to be used for caching mock session data
+ * @returns functions to get, save and overwrite mock session data, and to add form data and form submission id to the session data
+ */
 const createTxnBusinessCache = (cache: ICacheService) => {
     const createMockSessionKey = (
         transactionID: string,

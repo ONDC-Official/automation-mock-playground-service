@@ -132,9 +132,9 @@ describe('flow-mapper', () => {
             expect(result.sequence[0].status).toBe('INPUT-REQUIRED');
         });
 
-        it('regular step: subscriber != owner, unsolicited, no input → pushes both INPUT-REQUIRED and RESPONDING', () => {
-            // Documents the current (quirky) behavior in addPendingStep:
-            // unsolicited+no-input path pushes BOTH entries.
+        it('regular step: subscriber != owner, unsolicited, no input → single auto-submit INPUT-REQUIRED', () => {
+            // unsolicited+no-input emits ONLY the empty-input INPUT-REQUIRED the
+            // UI auto-proceeds to fire the send; no RESPONDING twin.
             const flow = makeFlow('f1', [
                 makeStep({
                     key: 'k1',
@@ -149,9 +149,9 @@ describe('flow-mapper', () => {
                 'AVAILABLE',
                 emptySession
             );
-            expect(result.sequence).toHaveLength(2);
+            expect(result.sequence).toHaveLength(1);
             expect(result.sequence[0].status).toBe('INPUT-REQUIRED');
-            expect(result.sequence[1].status).toBe('RESPONDING');
+            expect(result.sequence[0].input).toEqual([]);
         });
     });
 
@@ -1369,9 +1369,9 @@ describe('flow-mapper', () => {
             expect(phW?.status).toBe('RESPONDING');
         });
 
-        it('E17: unsolicited && !input pair (subscriber != owner) → dual placeholder push', () => {
+        it('E17: unsolicited && !input pair (subscriber != owner) → single INPUT-REQUIRED placeholder', () => {
             // pair step is owner=BPP, unsolicited, no input. subscriber=BAP.
-            // buildPendingStep returns TWO entries (INPUT-REQUIRED + RESPONDING).
+            // buildPendingStep returns ONE entry (auto-submit INPUT-REQUIRED).
             const flow = makeFlow(
                 'f1',
                 [makeStep({ key: 'k1', type: 'search', owner: 'BAP' })],
@@ -1406,14 +1406,123 @@ describe('flow-mapper', () => {
                 'AVAILABLE',
                 emptySession
             );
-            // 1 COMPLETE for extra-update + 2 placeholders for extra-on-update
-            expect(result.extraSteps).toHaveLength(3);
+            // 1 COMPLETE for extra-update + 1 placeholder for extra-on-update
+            expect(result.extraSteps).toHaveLength(2);
             const placeholders = result.extraSteps!.filter(
                 s => s.actionId === 'extra-on-update'
             );
-            expect(placeholders).toHaveLength(2);
-            const statuses = placeholders.map(p => p.status).sort();
-            expect(statuses).toEqual(['INPUT-REQUIRED', 'RESPONDING']);
+            expect(placeholders).toHaveLength(1);
+            expect(placeholders[0].status).toBe('INPUT-REQUIRED');
+        });
+    });
+
+    describe('manual flag — gates auto-RESPONDING into INPUT-REQUIRED', () => {
+        it('manual + subscriber != owner + no input + AVAILABLE → INPUT-REQUIRED', () => {
+            const flow = makeFlow('f1', [
+                makeStep({
+                    key: 'k1',
+                    type: 'on_search',
+                    owner: 'BPP',
+                    manual: true,
+                }),
+            ]);
+            const result = getFlowCompleteStatus(
+                makeTxn([], 'BAP'),
+                flow,
+                'AVAILABLE',
+                emptySession
+            );
+            expect(result.sequence).toHaveLength(1);
+            expect(result.sequence[0].status).toBe('INPUT-REQUIRED');
+            expect(result.sequence[0].manual).toBe(true);
+            // synthetic manual_id input injected, defaulting to the action id
+            const input = result.sequence[0].input as Array<
+                Record<string, unknown>
+            >;
+            expect(input).toHaveLength(1);
+            expect(input[0].name).toBe('manual_id');
+            expect(input[0].type).toBe('manual_id');
+            expect(
+                (input[0].schema as { properties: { id: { default: string } } })
+                    .properties.id.default
+            ).toBe('k1');
+        });
+
+        it('unsolicited + manual + subscriber != owner + AVAILABLE → only the manual INPUT-REQUIRED (no empty-input auto-submit placeholder)', () => {
+            // Regression: unsolicited would push an empty-input INPUT-REQUIRED that
+            // the UI auto-submits, bypassing the manual gate and looping. Manual wins.
+            const flow = makeFlow('f1', [
+                makeStep({
+                    key: 'k1',
+                    type: 'on_search',
+                    owner: 'BPP',
+                    unsolicited: true,
+                    manual: true,
+                }),
+            ]);
+            const result = getFlowCompleteStatus(
+                makeTxn([], 'BAP'),
+                flow,
+                'AVAILABLE',
+                emptySession
+            );
+            expect(result.sequence).toHaveLength(1);
+            expect(result.sequence[0].status).toBe('INPUT-REQUIRED');
+            const input = result.sequence[0].input as Array<
+                Record<string, unknown>
+            >;
+            expect(input).toHaveLength(1);
+            expect(input[0].name).toBe('manual_id');
+        });
+
+        it('manual step reverts to RESPONDING when flow is WORKING (in-flight)', () => {
+            const flow = makeFlow('f1', [
+                makeStep({
+                    key: 'k1',
+                    type: 'on_search',
+                    owner: 'BPP',
+                    manual: true,
+                }),
+            ]);
+            const result = getFlowCompleteStatus(
+                makeTxn([], 'BAP'),
+                flow,
+                'WORKING',
+                emptySession
+            );
+            expect(result.sequence[0].status).toBe('RESPONDING');
+        });
+
+        it('manual ignored when subscriber == owner → still LISTENING', () => {
+            const flow = makeFlow('f1', [
+                makeStep({
+                    key: 'k1',
+                    type: 'search',
+                    owner: 'BAP',
+                    manual: true,
+                }),
+            ]);
+            const result = getFlowCompleteStatus(
+                makeTxn([], 'BAP'),
+                flow,
+                'AVAILABLE',
+                emptySession
+            );
+            expect(result.sequence[0].status).toBe('LISTENING');
+        });
+
+        it('non-manual control: subscriber != owner + no input → RESPONDING', () => {
+            const flow = makeFlow('f1', [
+                makeStep({ key: 'k1', type: 'on_search', owner: 'BPP' }),
+            ]);
+            const result = getFlowCompleteStatus(
+                makeTxn([], 'BAP'),
+                flow,
+                'AVAILABLE',
+                emptySession
+            );
+            expect(result.sequence[0].status).toBe('RESPONDING');
+            expect(result.sequence[0].manual).toBeUndefined();
         });
     });
 });

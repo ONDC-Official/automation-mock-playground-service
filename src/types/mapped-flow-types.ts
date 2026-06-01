@@ -55,6 +55,7 @@ export interface MappedStep {
     label?: string;
     force_proceed?: boolean;
     repeat?: number;
+    manual?: boolean;
     isExtraStep?: boolean;
     awaitingMessageId?: string;
 }

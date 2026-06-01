@@ -1,6 +1,33 @@
-import { SequenceStep } from '../../../types/flow-types';
+import { FormConfigType, SequenceStep } from '../../../types/flow-types';
 import { MappedStep } from '../../../types/mapped-flow-types';
 import { MockStatusCode } from '../../../types/mock-service-types';
+
+/**
+ * Synthetic input surfaced on a manual step once it becomes INPUT-REQUIRED.
+ * Lets the UI detect it as an input (single `id` field, pre-filled with the
+ * action id) so the user explicitly triggers the send via /flows/proceed.
+ */
+export function buildManualInput(actionId: string): FormConfigType {
+    return [
+        {
+            name: 'manual_id',
+            type: 'manual_id',
+            schema: {
+                $schema: 'http://json-schema.org/draft-07/schema#',
+                type: 'object',
+                properties: {
+                    id: {
+                        type: 'string',
+                        default: actionId,
+                        enum: [actionId],
+                    },
+                },
+                required: ['id'],
+                additionalProperties: false,
+            },
+        },
+    ];
+}
 
 export interface BuildPendingStepArgs {
     step: SequenceStep;
@@ -27,6 +54,7 @@ export function buildPendingStep(args: BuildPendingStepArgs): MappedStep[] {
         label: step.label,
         force_proceed: step.force_proceed,
         repeat: (step as unknown as { repeat?: number }).repeat ?? 1,
+        manual: step.manual,
     };
 
     if (!isImmediateNext) {
@@ -72,15 +100,36 @@ export function buildPendingStep(args: BuildPendingStepArgs): MappedStep[] {
         ];
     }
 
-    const out: MappedStep[] = [];
-    if (step.unsolicited) {
-        out.push({
-            ...base,
-            status:
-                flowStatus === 'AVAILABLE' ? 'INPUT-REQUIRED' : 'RESPONDING',
-            input: [],
-        });
+    // Manual takes precedence over unsolicited: a manual step must wait for an
+    // explicit user trigger, so it must NOT also emit the unsolicited
+    // auto-submit (empty-input) placeholder — that placeholder would be
+    // auto-proceeded by the UI, bypassing the gate and looping on every poll.
+    const manualGate = step.manual === true && flowStatus === 'AVAILABLE';
+    if (manualGate) {
+        return [
+            {
+                ...base,
+                status: 'INPUT-REQUIRED',
+                input: buildManualInput(step.key),
+            },
+        ];
     }
-    out.push({ ...base, status: 'RESPONDING' });
-    return out;
+
+    // Unsolicited (AVAILABLE): emit a single auto-submit INPUT-REQUIRED
+    // placeholder (empty input) — the UI auto-proceeds it to fire the send.
+    // No RESPONDING twin: the placeholder alone drives the send, and the
+    // stateless re-derivation replaces it with COMPLETE once the action lands.
+    if (step.unsolicited) {
+        return [
+            {
+                ...base,
+                status:
+                    flowStatus === 'AVAILABLE'
+                        ? 'INPUT-REQUIRED'
+                        : 'RESPONDING',
+                input: [],
+            },
+        ];
+    }
+    return [{ ...base, status: 'RESPONDING' }];
 }

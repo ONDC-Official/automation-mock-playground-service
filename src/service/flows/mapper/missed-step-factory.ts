@@ -1,4 +1,8 @@
-import { MappedStep, ReducedApiData, ReduceFormData } from '../../../types/mapped-flow-types';
+import {
+    MappedStep,
+    ReducedApiData,
+    ReduceFormData,
+} from '../../../types/mapped-flow-types';
 import { deriveOwnerFromAction } from './owner-utils';
 
 export function makeApiMissedStep(

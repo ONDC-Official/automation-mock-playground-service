@@ -2,10 +2,19 @@ import axios from 'axios';
 import { MockRunnerConfig } from '../types/mock-runner-types';
 import logger from '@ondc/automation-logger';
 
-export function getSaveDataConfig(config: MockRunnerConfig, actionId: string) {
-    const actionConfig = config.steps?.find(
-        step => step.action_id === actionId
+// Resolve a step config by action id across main steps then extra steps.
+function findActionConfig(
+    config: MockRunnerConfig,
+    actionId: string
+): MockRunnerConfig['steps'][0] | undefined {
+    return (
+        config.steps?.find(step => step.action_id === actionId) ??
+        config.extra_steps?.steps.find(step => step.action_id === actionId)
     );
+}
+
+export function getSaveDataConfig(config: MockRunnerConfig, actionId: string) {
+    const actionConfig = findActionConfig(config, actionId);
     if (!actionConfig) {
         throw new Error(`Action config not found for actionId: ${actionId}`);
     }
@@ -16,9 +25,7 @@ export function getConfigStep(
     config: MockRunnerConfig,
     actionId: string
 ): MockRunnerConfig['steps'][0] {
-    const actionConfig = config.steps?.find(
-        step => step.action_id === actionId
-    );
+    const actionConfig = findActionConfig(config, actionId);
     if (!actionConfig) {
         throw new Error(`Action config not found for actionId: ${actionId}`);
     }

@@ -1,8 +1,5 @@
 import { FormApiType, HistoryType } from '../../../types/cache-types';
-import {
-    ApiHistory,
-    ReducedApiData,
-} from '../../../types/mapped-flow-types';
+import { ApiHistory, ReducedApiData } from '../../../types/mapped-flow-types';
 
 export function reduceApiDataList(data: HistoryType[]): ApiHistory[] {
     const map = new Map<string, ApiHistory>();
