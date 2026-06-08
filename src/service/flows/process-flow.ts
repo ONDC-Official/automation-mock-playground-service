@@ -135,13 +135,15 @@ export async function actOnFlowService(
                 message: `trigger_extra: unknown extras key "${params.trigger_extra}"`,
             };
         }
-        // Two valid trigger directions:
-        //  - owner !== subscriberType: simulate the COUNTERPARTY sending to us (loopback).
-        //  - owner === subscriberType: send OUR OWN action to the counterparty (e.g. the provider
-        //    pushing on_track / on_status to the buyer). Both generate + dispatch the payload; the
-        //    API service routes by the payload's bap_uri/bpp_uri, so own-actions reach the
-        //    counterparty. Previously own-owned triggers were rejected, which blocked the provider
-        //    from driving the ride map.
+
+        // only allow counter party triggers
+        if (step.owner === params.transactionData.subscriberType) {
+            return {
+                success: false,
+                message: `trigger_extra: step "${step.key}" is owned by ${step.owner}, not ${params.transactionData.subscriberType}`,
+            };
+        }
+       
         const triggerStatus = extraFlowStatuses.get(step.key) ?? 'AVAILABLE';
         if (triggerStatus !== 'AVAILABLE') {
             return {
