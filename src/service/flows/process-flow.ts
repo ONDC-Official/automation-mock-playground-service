@@ -135,6 +135,7 @@ export async function actOnFlowService(
                 message: `trigger_extra: unknown extras key "${params.trigger_extra}"`,
             };
         }
+
         // only allow counter party triggers
         if (step.owner === params.transactionData.subscriberType) {
             return {
@@ -142,6 +143,7 @@ export async function actOnFlowService(
                 message: `trigger_extra: step "${step.key}" is owned by ${step.owner}, not ${params.transactionData.subscriberType}`,
             };
         }
+       
         const triggerStatus = extraFlowStatuses.get(step.key) ?? 'AVAILABLE';
         if (triggerStatus !== 'AVAILABLE') {
             return {

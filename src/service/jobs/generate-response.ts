@@ -302,6 +302,18 @@ export function createGenerationRequestCompleteHandler(
             );
             const id = await queue.enqueue(SEND_TO_API_SERVICE_JOB, params);
             logger.info('Enqueued API service request job', { jobId: id });
+
+            // Extra steps are repeatable side-channel sends (e.g. the ride-map driver moves /
+            // state changes). Once the payload is generated and the send is enqueued, free the
+            // step back to AVAILABLE so it can be re-triggered immediately. Sequence steps are
+            // left WORKING (they clear when the API service acks the response).
+            if (job.data.actionMeta.isExtraStep === true) {
+                await resetFlowStatusToAvailable(
+                    workbenchCache,
+                    job.data.flowContext,
+                    job.data.actionMeta
+                );
+            }
         } catch (error) {
             logger.error('Error in processing generated payload', {}, error);
             // The request never reached the api service, so it won't write
