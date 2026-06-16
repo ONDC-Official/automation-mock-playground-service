@@ -67,8 +67,12 @@ export function incomingRequestControllers(
                     flowStatus.status,
                     mockSessionData
                 );
+                const combinedSteps: MappedStep[] = [
+                    ...flowStatusComplete.sequence,
+                    ...(flowStatusComplete.extraSteps ?? []),
+                ];
                 const matchingStep = await findMatchingStep(
-                    flowStatusComplete.sequence,
+                    combinedSteps,
                     payload
                 );
                 if (!matchingStep) {
@@ -90,7 +94,7 @@ export function incomingRequestControllers(
                     queue,
                     mockRunnerCache,
                     workbenchCache,
-                    flowStatusComplete.sequence
+                    combinedSteps
                 );
 
                 if (processRequest?.shouldRespond === true) {
@@ -119,6 +123,11 @@ async function findMatchingStep(
     sequence: MappedStep[],
     body: Record<string, unknown>
 ) {
+    const context = body.context as {
+        action: string;
+        message_id: string;
+        timestamp: string;
+    };
     for (const step of sequence) {
         const data = step.payloads;
         if (
@@ -130,11 +139,6 @@ async function findMatchingStep(
         }
         if (data && data.payloads.length > 0) {
             const uniqueKey = `${data.action}::${data.messageId}::${data.timestamp}`;
-            const context = body.context as {
-                action: string;
-                message_id: string;
-                timestamp: string;
-            };
             const requestKey = `${context.action}::${context.message_id}::${context.timestamp}`;
             if (uniqueKey === requestKey) {
                 return { step, index: sequence.indexOf(step) };
@@ -254,9 +258,10 @@ async function processMatchingRequest(
             getLoggerData(req)
         );
 
-        // Check if the next step in the sequence is an HTML_FORM
+        // Check if the next step in the sequence is an HTML_FORM.
+        // Extras don't sit adjacent to form steps — skip this lookahead for extras.
         const nextStepIndex = index + 1;
-        if (nextStepIndex < sequence.length) {
+        if (!step.isExtraStep && nextStepIndex < sequence.length) {
             const nextStep = sequence[nextStepIndex];
             if (
                 nextStep.actionType === 'HTML_FORM' ||

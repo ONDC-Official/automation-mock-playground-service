@@ -1,7 +1,13 @@
 import logger from '@ondc/automation-logger';
 import { NextFunction, Request, Response } from 'express';
 
-const SKIP_PATHS = ['/health', '/metrics', '/memory', '/heapdump'];
+const SKIP_PATHS = [
+    '/health',
+    '/metrics',
+    '/memory',
+    '/heapdump',
+    '/mock/playground/flows/current-status',
+];
 const MAX_BODY_LOG_BYTES = 2048;
 const PREVIEW_CHARS = 500;
 

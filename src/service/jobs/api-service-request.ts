@@ -42,7 +42,7 @@ export function createApiServiceRequestJobHandler() {
                 responseBody: res.data,
             };
         } catch (error) {
-            logger.error('API service request failed', { error });
+            logger.error('API service request failed', {}, { error });
             if (!axios.isAxiosError(error)) {
                 return {
                     success: false,

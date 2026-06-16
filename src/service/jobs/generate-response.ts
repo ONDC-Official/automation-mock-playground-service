@@ -9,7 +9,7 @@ import {
 } from './api-service-request';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import { getSaveDataConfig } from '../../utils/runner-utils';
-import { createGenericContext } from '../../utils/create-generic-context';
+import { buildErrorPayload } from '../../utils/build-error-payload';
 
 export const GENERATE_PAYLOAD_JOB = 'GENERATE_PAYLOAD_JOB';
 
@@ -25,121 +25,203 @@ export type GenerateMockPayloadJobResult = {
     payload?: unknown;
 };
 
+type MeetRequirementsResult = {
+    valid?: boolean;
+    code?: number;
+    description?: string;
+};
+
+/**
+ * Free a step back to AVAILABLE so it can be re-dispatched after a failure.
+ * Extra steps carry a per-step status; sequence steps use the flow-level status.
+ * Without this an errored step stays WORKING until its TTL, and re-triggering
+ * fails with "step ... is WORKING, cannot dispatch".
+ */
+async function resetFlowStatusToAvailable(
+    workbenchCache: WorkbenchCacheServiceType,
+    flowContext: FlowContext,
+    actionMeta: MappedStep
+): Promise<void> {
+    try {
+        const flowStatusService = workbenchCache.FlowStatusCacheService();
+        if (actionMeta.isExtraStep === true) {
+            await flowStatusService.setExtraFlowStatus(
+                flowContext.transactionId,
+                flowContext.subscriberUrl,
+                actionMeta.actionId,
+                'AVAILABLE'
+            );
+        } else {
+            await flowStatusService.setFlowStatus(
+                flowContext.transactionId,
+                flowContext.subscriberUrl,
+                'AVAILABLE'
+            );
+        }
+    } catch (e) {
+        logger.error(
+            'Failed to reset flow status to AVAILABLE',
+            {
+                transactionId: flowContext.transactionId,
+                flowId: flowContext.flowId,
+                actionId: actionMeta.actionId,
+            },
+            e as Error
+        );
+    }
+}
+
 export function createGeneratePayloadJobHandler(
     workbenchCache: WorkbenchCacheServiceType,
     configCache: MockRunnerConfigCache
 ) {
     return async (data: GenerateMockPayloadJobParams) => {
+        const { flowContext, actionMeta } = data;
+        const logMeta = {
+            transactionId: flowContext.transactionId,
+            flowId: flowContext.flowId,
+            domain: flowContext.domain,
+            version: flowContext.version,
+            actionId: actionMeta.actionId,
+        };
+
+        // On any generation failure, free the step back to AVAILABLE so it can be
+        // re-dispatched.
+        const resetStatusToAvailable = () =>
+            resetFlowStatusToAvailable(workbenchCache, flowContext, actionMeta);
+
         try {
-            logger.debug('Fetched mock runner config', {
-                transactionId: data.flowContext.transactionId,
-                flowId: data.flowContext.flowId,
-                domain: data.flowContext.domain,
-                version: data.flowContext.version,
-            });
             const mockRunner = await configCache.getRunnerInstance(
-                data.flowContext.domain,
-                data.flowContext.version,
-                data.flowContext.flowId,
-                data.flowContext.apiSessionCache.usecaseId,
-                data.flowContext.transactionData.sessionId
+                flowContext.domain,
+                flowContext.version,
+                flowContext.flowId,
+                flowContext.apiSessionCache.usecaseId,
+                flowContext.transactionData.sessionId
             );
-            logger.debug('Initialized mock runner', {
-                actionID: data.actionMeta.actionId,
-            });
+
             const txnMockData = await workbenchCache
                 .TxnBusinessCacheService()
                 .getMockSessionData(
-                    data.flowContext.transactionId,
-                    data.flowContext.subscriberUrl,
-                    data.flowContext.sessionId
+                    flowContext.transactionId,
+                    flowContext.subscriberUrl,
+                    flowContext.sessionId
                 );
             txnMockData.user_inputs = data.inputs as
                 | Record<string, unknown>
                 | undefined;
 
-            if (data.flowContext.apiSessionCache.npType === 'BAP') {
-                txnMockData.bapUri = data.flowContext.subscriberUrl;
+            if (flowContext.apiSessionCache.npType === 'BAP') {
+                txnMockData.bapUri = flowContext.subscriberUrl;
             } else {
-                txnMockData.bppUri = data.flowContext.subscriberUrl;
+                txnMockData.bppUri = flowContext.subscriberUrl;
             }
+
             const finvuUrl = process.env.FINVU_AA_SERVICE_URL;
             if (finvuUrl) {
                 txnMockData.finvuUrl = finvuUrl;
             }
+
+            if (process.env.SKIP_MEETS_REQUIRMENTS === 'true') {
+                logger.info(
+                    'Skipping meet requirements check (SKIP_MEETS_REQUIRMENTS=true)',
+                    logMeta
+                );
+            } else {
+                const meetOutput =
+                    await mockRunner.runMeetRequirementsWithSession(
+                        actionMeta.actionId,
+                        txnMockData
+                    );
+                if (meetOutput.success === false) {
+                    logger.error(
+                        'Meet requirements execution failed',
+                        logMeta,
+                        meetOutput.error
+                    );
+                    await resetStatusToAvailable();
+                    return {
+                        success: true,
+                        message:
+                            'Requirements check errored, proceeding with error payload',
+                        payload: buildErrorPayload(
+                            flowContext,
+                            actionMeta,
+                            'REQUIREMENTS_CHECK_ERROR',
+                            '[MOCK PAYLOAD GENERATION ERROR] PLEASE CONTACT TECH SUPPORT',
+                            meetOutput.error?.message ??
+                                'Requirements check failed',
+                            meetOutput.error?.stack ??
+                                'Stack trace not available'
+                        ),
+                    };
+                }
+
+                const reqResult = meetOutput.result as
+                    | MeetRequirementsResult
+                    | undefined;
+                if (reqResult?.valid === false) {
+                    logger.info('Requirements not met for action', {
+                        ...logMeta,
+                        code: reqResult.code,
+                        description: reqResult.description,
+                    });
+                    return {
+                        success: true,
+                        message:
+                            'Requirements not met, proceeding with error payload',
+                        payload: buildErrorPayload(
+                            flowContext,
+                            actionMeta,
+                            'REQUIREMENTS_NOT_MET',
+                            reqResult.description ?? 'Requirements not met',
+                            reqResult.description ?? 'Requirements not met',
+                            `code=${reqResult.code ?? 'N/A'} description=${reqResult.description ?? 'N/A'}`
+                        ),
+                    };
+                }
+            }
+
             const genOutput = await mockRunner.runGeneratePayloadWithSession(
-                data.actionMeta.actionId,
+                actionMeta.actionId,
                 txnMockData
             );
             if (genOutput.success === false) {
                 logger.error(
                     'Mock payload generation failed',
-                    {
-                        transactionId: data.flowContext.transactionId,
-                        flowId: data.flowContext.flowId,
-                        actionId: data.actionMeta.actionId,
-                        result: genOutput,
-                    },
+                    { ...logMeta, result: genOutput },
                     genOutput.error
                 );
+                await resetStatusToAvailable();
                 return {
                     success: true,
                     message:
                         'Mock payload generation failed, but proceeding with payload with error details',
-                    payload: {
-                        context: createGenericContext(
-                            data.flowContext.domain,
-                            data.flowContext.version,
-                            data.actionMeta.actionType,
-                            data.flowContext.transactionId,
-                            data.flowContext.subscriberUrl
-                        ),
-                        error: {
-                            code: 'GENERATION_ERROR',
-                            message:
-                                '[MOCK PAYLOAD GENERATION ERROR] PLEASE CONTACT TECH SUPPORT',
-                            paths: genOutput.error?.stack,
-                            tags: [
-                                {
-                                    descriptor: {
-                                        short_desc:
-                                            genOutput.error?.message ||
-                                            'Error details not available',
-                                        long_desc:
-                                            genOutput.error?.stack ||
-                                            'Stack trace not available',
-                                    },
-                                },
-                            ],
-                        },
-                    },
+                    payload: buildErrorPayload(
+                        flowContext,
+                        actionMeta,
+                        'GENERATION_ERROR',
+                        '[MOCK PAYLOAD GENERATION ERROR] PLEASE CONTACT TECH SUPPORT',
+                        genOutput.error?.message ??
+                            'Error details not available',
+                        genOutput.error?.stack ?? 'Stack trace not available'
+                    ),
                 };
             }
 
-            const payload = genOutput.result;
-
-            if (payload === undefined) {
-                logger.error('Generated payload is undefined');
+            if (genOutput.result === undefined) {
+                logger.error('Generated payload is undefined', logMeta);
                 throw new Error('Generated payload is undefined');
             }
-            logger.debug('Generated mock payload', {
-                transactionId: data.flowContext.transactionId,
-                flowId: data.flowContext.flowId,
-            });
+
+            logger.debug('Generated mock payload', logMeta);
             return {
                 success: true,
                 message: 'Payload generated successfully',
-                payload,
+                payload: genOutput.result,
             };
         } catch (error) {
-            logger.error('Error generating mock payload', {}, error);
-            workbenchCache
-                .FlowStatusCacheService()
-                .setFlowStatus(
-                    data.flowContext.transactionId,
-                    data.flowContext.subscriberUrl,
-                    'AVAILABLE'
-                );
+            logger.error('Error generating mock payload', logMeta, error);
+            await resetStatusToAvailable();
             throw error;
         }
     };
@@ -220,8 +302,28 @@ export function createGenerationRequestCompleteHandler(
             );
             const id = await queue.enqueue(SEND_TO_API_SERVICE_JOB, params);
             logger.info('Enqueued API service request job', { jobId: id });
+
+            // Extra steps are repeatable side-channel sends (e.g. the ride-map driver moves /
+            // state changes). Once the payload is generated and the send is enqueued, free the
+            // step back to AVAILABLE so it can be re-triggered immediately. Sequence steps are
+            // left WORKING (they clear when the API service acks the response).
+            if (job.data.actionMeta.isExtraStep === true) {
+                await resetFlowStatusToAvailable(
+                    workbenchCache,
+                    job.data.flowContext,
+                    job.data.actionMeta
+                );
+            }
         } catch (error) {
             logger.error('Error in processing generated payload', {}, error);
+            // The request never reached the api service, so it won't write
+            // AVAILABLE back. Free the step here or it stays WORKING until TTL
+            // and re-dispatch fails with "step ... is WORKING, cannot dispatch".
+            await resetFlowStatusToAvailable(
+                workbenchCache,
+                job.data.flowContext,
+                job.data.actionMeta
+            );
         }
     };
 }

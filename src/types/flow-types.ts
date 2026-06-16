@@ -30,6 +30,7 @@ export const SequenceStepSchema = z.object({
     label: z.string().optional(),
     force_proceed: z.boolean().optional(),
     repeat: z.number().optional(),
+    manual: z.boolean().optional(),
 });
 
 export const FlowSchema = z.object({
@@ -37,6 +38,7 @@ export const FlowSchema = z.object({
     title: z.string().optional(),
     description: z.string().optional(),
     sequence: z.array(SequenceStepSchema),
+    extraSequence: z.array(SequenceStepSchema).optional(),
 });
 
 export const DomainSchema = z.object({
