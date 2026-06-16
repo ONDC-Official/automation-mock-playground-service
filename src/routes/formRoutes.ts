@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { newFormControllers } from '../controllers/form-controller';
 import ServiceContainer from '../container/container';
+import { multipartFormParser } from '../middlewares/multipart-form-parser';
 
 const formRouter = Router();
 const container = ServiceContainer.getInstance();
@@ -14,6 +15,7 @@ const formControllers = newFormControllers(
 formRouter.get('/:domain/:formId', formControllers.getFormController);
 formRouter.post(
     '/:domain/:formId/submit',
+    multipartFormParser
     formControllers.submitFormController
 );
 
