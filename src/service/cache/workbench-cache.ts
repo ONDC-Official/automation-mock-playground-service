@@ -120,7 +120,7 @@ const createTxnBusinessCache = (cache: ICacheService) => {
             return data as MockSessionCache;
         }
         const data = await cache.get(key, MockSessionCacheSchema);
-        logger.debug('Fetched mock session data', { key, data });
+        logger.debug('Fetched mock session data', { key });
         if (!data) {
             throw new Error(
                 `No mock session data found for transaction ID: ${transactionID}`
