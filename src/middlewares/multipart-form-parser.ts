@@ -61,7 +61,6 @@ export const multipartFormParser = (
 
     const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/);
     const boundary = boundaryMatch?.[1] ?? boundaryMatch?.[2];
-    console.log("boundary=>>>>>",boundary)
     if (!boundary) {
         return next(new Error('Missing multipart boundary in Content-Type'));
     }
