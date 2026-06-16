@@ -91,7 +91,7 @@ export const multipartFormParser = (
         }
     });
 
-    req.on('error', (error) => {
+    req.on('error', error => {
         if (aborted) return;
         aborted = true;
         next(error);
