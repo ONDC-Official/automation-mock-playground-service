@@ -50,7 +50,7 @@ const parseMultipart = (
  * Populates req.body the same way express.urlencoded()/express.json() do for other content types.
  */
 export const multipartFormParser = (
-    req: Request
+    req: Request,
     _res: Response,
     next: NextFunction
 ) => {

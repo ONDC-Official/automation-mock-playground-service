@@ -15,7 +15,7 @@ const formControllers = newFormControllers(
 formRouter.get('/:domain/:formId', formControllers.getFormController);
 formRouter.post(
     '/:domain/:formId/submit',
-    multipartFormParser
+    multipartFormParser,
     formControllers.submitFormController
 );
 
