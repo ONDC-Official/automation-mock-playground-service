@@ -263,10 +263,6 @@ const flowStatusCache = (cache: ICacheService) => {
         loggingMeta: unknown
     ): Promise<MockFlowStatusCache> => {
         try {
-            logger.info(
-                `Getting flow operation status for transactionId: ${transactionId} and subscriberUrl: ${subscriberUrl}`,
-                loggingMeta
-            );
             const key = createFlowStatusCacheKey(transactionId, subscriberUrl);
             const cached = await cache.get(key, MockFlowStatusCacheSchema);
             if (cached) {

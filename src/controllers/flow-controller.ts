@@ -263,10 +263,6 @@ export const flowControllers = (
                 );
 
             const flow = fetchFlow(sessionData, transactionData.flowId);
-            logger.debug('Fetched flow data', {
-                transactionId: query.transaction_id,
-                flowId: transactionData.flowId,
-            });
             const status = getFlowCompleteStatus(
                 transactionData,
                 flow,
