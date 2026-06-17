@@ -1,12 +1,18 @@
 import { Request } from 'express';
-import logger from '@ondc/automation-logger';
+import logger from './logger';
 import { ApiRequest } from '../routes/manualRoutes';
+import { getTraceContext } from './trace-context';
 
 export function getLoggerMeta(req: Request) {
+    // Layer the active trace context underneath the request-derived fields so
+    // explicit callers still get the full id set (the wrapper injects it too,
+    // but this keeps the helper's output self-contained).
+    const trace = getTraceContext();
     return {
-        correlationId: req.correlationId,
-        transactionId: req.body?.context?.transaction_id,
-        messageId: req.body?.context?.message_id,
+        ...trace,
+        correlationId: req.correlationId ?? trace.correlationId,
+        transactionId: req.body?.context?.transaction_id ?? trace.transactionId,
+        messageId: req.body?.context?.message_id ?? trace.messageId,
     };
 }
 

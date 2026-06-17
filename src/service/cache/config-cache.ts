@@ -5,7 +5,7 @@ import {
     MockRunnerConfigSchema,
 } from '../../types/mock-runner-types';
 import { fetchMockRunnerConfigFromService } from '../../utils/runner-utils';
-import logger from '@ondc/automation-logger';
+import logger from '../../utils/logger';
 const resolveApiServiceUrls = () => {
     let url =
         process.env.API_SERVICE_URL ||

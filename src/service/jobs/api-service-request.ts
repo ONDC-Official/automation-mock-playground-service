@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { QueueJob } from '../../queue/IQueueService';
-import logger from '@ondc/automation-logger';
+import logger from '../../utils/logger';
+import { setTraceContext } from '../../utils/trace-context';
 
 export const SEND_TO_API_SERVICE_JOB = 'SEND_TO_API_SERVICE_JOB';
 
@@ -21,6 +22,13 @@ export type ApiServiceRequestJobResult = {
 
 export function createApiServiceRequestJobHandler() {
     return async (data: ApiServiceRequestJobParams) => {
+        setTraceContext({
+            action: data.action,
+            domain: data.domain,
+            version: data.version,
+            flowId: data.queryParams?.flow_id,
+            sessionId: data.queryParams?.session_id,
+        });
         try {
             const url = createApiServiceURL(
                 data.version,

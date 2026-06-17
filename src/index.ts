@@ -5,7 +5,7 @@ import './container/implementations/main';
 
 import createServer from './server';
 import config from './config/server-config';
-import logger from '@ondc/automation-logger';
+import logger from './utils/logger';
 
 const app = createServer();
 
