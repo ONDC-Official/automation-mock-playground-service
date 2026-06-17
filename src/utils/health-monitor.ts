@@ -1,6 +1,6 @@
 import os from 'os';
 import promClient from 'prom-client';
-import logger from '@ondc/automation-logger';
+import logger from './logger';
 import ServiceContainer from '../container/container';
 import { ICacheService } from '../cache/cache-interface';
 import { z } from 'zod';

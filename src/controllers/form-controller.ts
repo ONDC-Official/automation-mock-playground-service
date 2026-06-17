@@ -13,8 +13,9 @@ import {
     handleGetFormService,
 } from '../service/forms/form-handlers';
 import { sendSuccess } from '../utils/res-utils';
-import logger from '@ondc/automation-logger';
+import logger from '../utils/logger';
 import { IQueueService } from '../queue/IQueueService';
+import { setTraceContext } from '../utils/trace-context';
 
 export const newFormControllers = (
     workbenchCache: WorkbenchCacheServiceType,
@@ -47,6 +48,14 @@ export const newFormControllers = (
                         data.transaction_id,
                         sessionData.subscriberUrl
                     );
+                setTraceContext({
+                    transactionId: data.transaction_id,
+                    sessionId: data.session_id,
+                    flowId: transactionData.flowId,
+                    actionId: formId,
+                    domain,
+                    version: sessionData.version,
+                });
                 const runnerConfig = await mockRunnerCache.getMockRunnerConfig(
                     domain,
                     sessionData.version,
@@ -120,6 +129,14 @@ export const newFormControllers = (
                         data.transaction_id,
                         sessionData.subscriberUrl
                     );
+                setTraceContext({
+                    transactionId: data.transaction_id,
+                    sessionId: data.session_id,
+                    flowId: transactionData.flowId,
+                    actionId: formId,
+                    domain,
+                    version: sessionData.version,
+                });
                 const runnerConfig = await mockRunnerCache.getMockRunnerConfig(
                     domain,
                     sessionData.version,

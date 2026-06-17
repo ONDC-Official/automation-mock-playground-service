@@ -5,7 +5,7 @@ import {
     ONDC_ERROR_CODES,
     OndcErrorCodeKey,
 } from '../constants/error-codes';
-import logger from '@ondc/automation-logger';
+import logger from './logger';
 import { BecknContext } from '../types/ondc-types';
 
 const resUtilsLogger = logger;

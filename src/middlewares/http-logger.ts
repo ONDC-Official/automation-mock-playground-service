@@ -1,4 +1,4 @@
-import logger from '@ondc/automation-logger';
+import logger from '../utils/logger';
 import { NextFunction, Request, Response } from 'express';
 
 const SKIP_PATHS = [
@@ -64,6 +64,7 @@ export const requestLogger = (
 ) => {
     if (shouldSkip(req.url)) return next();
     const { method, url, query } = req;
+    res.locals.__startTime = process.hrtime.bigint();
     logger.info(`[${method}] RequestLog=> ${url}`, { query });
     next();
 };
@@ -77,8 +78,14 @@ export const responseLogger = (
     const originalSend = res.send;
 
     res.send = function (body?: unknown): Response {
+        const start = res.locals.__startTime as bigint | undefined;
+        const durationMs =
+            start !== undefined
+                ? Number(process.hrtime.bigint() - start) / 1e6
+                : undefined;
         logger.info(
-            `[${req.method}] ResponseLog=> ${req.url} - Status: ${res.statusCode}`
+            `[${req.method}] ResponseLog=> ${req.url} - Status: ${res.statusCode}`,
+            { status: res.statusCode, durationMs }
         );
         logger.debug(`Response Body:`, summarizeBody(body));
         return originalSend.call(this, body);

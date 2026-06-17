@@ -4,7 +4,12 @@ import {
     QueueJob,
     QueueOptions,
 } from './IQueueService';
-import logger from '@ondc/automation-logger';
+import logger from '../utils/logger';
+import {
+    getTraceContext,
+    runWithTraceContext,
+    TraceContext,
+} from '../utils/trace-context';
 import { randomUUID } from 'crypto';
 import { setImmediate } from 'timers';
 
@@ -12,6 +17,7 @@ interface QueuedJob<T> extends QueueJob<T> {
     options?: QueueOptions;
     jobName: string;
     attemptsLeft: number;
+    trace?: TraceContext;
 }
 
 interface QueueState {
@@ -50,6 +56,10 @@ const createJob = <T>(
     jobName,
     options,
     attemptsLeft: options?.attempts || 1,
+    // Snapshot the enqueuing request's trace context so the job's logs carry
+    // the same ids even though it runs on a later tick (outside the request's
+    // async context).
+    trace: { ...getTraceContext() },
 });
 
 const withTimeout = async <T>(
@@ -119,31 +129,39 @@ const processNextJob = async (state: QueueState): Promise<void> => {
     }
 
     try {
-        const result = job.options?.timeout
-            ? await withTimeout(handler(job.data), job.options.timeout)
-            : await handler(job.data);
+        // Re-establish the snapshotted trace context so the handler, event
+        // handlers, and job logs all carry the originating request's ids.
+        await runWithTraceContext(job.trace ?? {}, async () => {
+            try {
+                const result = job.options?.timeout
+                    ? await withTimeout(handler(job.data), job.options.timeout)
+                    : await handler(job.data);
 
-        emitEvent(state, 'completed', job, result);
-        logger.info(`Job ${job.id} completed successfully.`);
-    } catch (error) {
-        logger.error(`Job ${job.id} failed: ${(error as Error).message}`);
-        job.attemptsLeft -= 1;
+                emitEvent(state, 'completed', job, result);
+                logger.info(`Job ${job.id} completed successfully.`);
+            } catch (error) {
+                logger.error(
+                    `Job ${job.id} failed: ${(error as Error).message}`
+                );
+                job.attemptsLeft -= 1;
 
-        if (job.attemptsLeft > 0) {
-            const delay = calculateRetryDelay(
-                job.options || {},
-                (job.options?.attempts || 1) - job.attemptsLeft
-            );
-            logger.info(
-                `Re-enqueuing job ${job.id} after ${delay}ms, attempts left: ${job.attemptsLeft}`
-            );
-            setTimeout(() => {
-                state.queue.push(job);
-                scheduleProcessing(state); // ✅ Trigger processing after retry
-            }, delay);
-        } else {
-            emitEvent(state, 'failed', job, undefined, error as Error);
-        }
+                if (job.attemptsLeft > 0) {
+                    const delay = calculateRetryDelay(
+                        job.options || {},
+                        (job.options?.attempts || 1) - job.attemptsLeft
+                    );
+                    logger.info(
+                        `Re-enqueuing job ${job.id} after ${delay}ms, attempts left: ${job.attemptsLeft}`
+                    );
+                    setTimeout(() => {
+                        state.queue.push(job);
+                        scheduleProcessing(state); // ✅ Trigger processing after retry
+                    }, delay);
+                } else {
+                    emitEvent(state, 'failed', job, undefined, error as Error);
+                }
+            }
+        });
     } finally {
         state.processing = false;
         scheduleProcessing(state); // ✅ Process next job
