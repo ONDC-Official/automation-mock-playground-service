@@ -2,7 +2,8 @@ import { IQueueService, QueueJob } from '../../queue/IQueueService';
 import { MappedStep } from '../../types/mapped-flow-types';
 import { FlowContext } from '../../types/process-flow-types';
 import { MockRunnerConfigCache } from '../cache/config-cache';
-import logger from '@ondc/automation-logger';
+import logger from '../../utils/logger';
+import { setTraceContext } from '../../utils/trace-context';
 import {
     ApiServiceRequestJobParams,
     SEND_TO_API_SERVICE_JOB,
@@ -77,6 +78,15 @@ export function createGeneratePayloadJobHandler(
 ) {
     return async (data: GenerateMockPayloadJobParams) => {
         const { flowContext, actionMeta } = data;
+        setTraceContext({
+            transactionId: flowContext.transactionId,
+            sessionId: flowContext.sessionId,
+            flowId: flowContext.flowId,
+            domain: flowContext.domain,
+            version: flowContext.version,
+            action: actionMeta.actionType,
+            actionId: actionMeta.actionId,
+        });
         const logMeta = {
             transactionId: flowContext.transactionId,
             flowId: flowContext.flowId,

@@ -1,7 +1,7 @@
 // import v8 from 'v8';
 // import { mkdirSync } from 'fs';
 // import { join } from 'path';
-// import logger from '@ondc/automation-logger';
+// import logger from './logger';
 // import promClient from 'prom-client';
 
 // // ── Prometheus gauges ──────────────────────────────────────────────────────────

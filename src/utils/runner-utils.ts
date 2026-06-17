@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { MockRunnerConfig } from '../types/mock-runner-types';
-import logger from '@ondc/automation-logger';
+import logger from './logger';
 
 // Resolve a step config by action id across main steps then extra steps.
 function findActionConfig(

@@ -15,7 +15,7 @@ import {
     MockStatusCode,
     SaveDataConfig,
 } from '../../types/mock-service-types';
-import logger from '@ondc/automation-logger';
+import logger from '../../utils/logger';
 
 const createTransactionalCache = (cache: ICacheService) => {
     const generateTransactionKey = (

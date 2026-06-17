@@ -28,7 +28,8 @@ import {
     attachFlowContext,
 } from '../types/process-flow-types';
 import { getLoggerMeta, logError } from '../utils/req-utils';
-import logger from '@ondc/automation-logger';
+import logger from '../utils/logger';
+import { setTraceContext } from '../utils/trace-context';
 
 export const flowControllers = (
     queueService: IQueueService,
@@ -67,6 +68,15 @@ export const flowControllers = (
                 transactionData,
                 domain: sessionData.domain,
                 version: sessionData.version,
+            });
+            setTraceContext({
+                transactionId,
+                sessionId,
+                flowId,
+                action: context.action,
+                domain: sessionData.domain,
+                version: sessionData.version,
+                messageId: context.message_id,
             });
             next();
         } catch (error) {
@@ -130,6 +140,13 @@ export const flowControllers = (
                     messageIds: [],
                     apiList: [],
                 },
+            });
+            setTraceContext({
+                transactionId,
+                sessionId: body.session_id,
+                flowId: body.flow_id,
+                domain: sessionData.domain,
+                version: sessionData.version,
             });
             logger.info(
                 `new flow with ID: ${body.flow_id} for transaction: ${transactionId} information attached to request`
@@ -201,6 +218,14 @@ export const flowControllers = (
                 trigger_extra: body.trigger_extra,
             });
 
+            setTraceContext({
+                transactionId: body.transaction_id,
+                sessionId: body.session_id,
+                flowId: transactionData.flowId,
+                domain: sessionData.domain,
+                version: sessionData.version,
+            });
+
             next();
         } catch (error) {
             logError(req, 'proceedWithFlowController failed', error);
@@ -245,6 +270,14 @@ export const flowControllers = (
             const transactionData = await workbenchCache
                 .TransactionalCacheService()
                 .getTransactionData(query.transaction_id, subscriberUrl);
+
+            setTraceContext({
+                transactionId: query.transaction_id,
+                sessionId: query.session_id,
+                flowId: transactionData.flowId,
+                domain: sessionData.domain,
+                version: sessionData.version,
+            });
 
             const mockSessionData = await workbenchCache
                 .TxnBusinessCacheService()
