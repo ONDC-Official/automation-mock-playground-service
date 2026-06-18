@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { sendError } from '../utils/res-utils';
-import logger from '@ondc/automation-logger';
+import logger from '../observability/log';
 
 export function requireJsonContent(
     req: Request,

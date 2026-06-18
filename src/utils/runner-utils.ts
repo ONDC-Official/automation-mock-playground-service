@@ -1,6 +1,6 @@
-import axios from 'axios';
+import { obsAxios } from '../observability/http-client';
 import { MockRunnerConfig } from '../types/mock-runner-types';
-import logger from '@ondc/automation-logger';
+import logger from '../observability/log';
 
 // Resolve a step config by action id across main steps then extra steps.
 function findActionConfig(
@@ -39,7 +39,7 @@ export async function fetchMockRunnerConfigFromService(
     usecaseId: string
 ) {
     try {
-        const data = await axios.get(
+        const data = await obsAxios.get(
             process.env.CONFIG_SERVICE_URL + `/mock/playground`,
             {
                 params: {

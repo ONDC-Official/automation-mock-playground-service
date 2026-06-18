@@ -1,9 +1,14 @@
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import { healthMonitor } from './utils/health-monitor';
-import logger from '@ondc/automation-logger';
+import logger from './observability/log';
 import { sendError, sendSuccess } from './utils/res-utils';
-// import promClient from 'prom-client';
+import { register } from './observability/metrics';
+import {
+    seedCorrelation,
+    seedBecknContext,
+    httpMetricsMiddleware,
+} from './observability/trace-middleware';
 // import {
 //     collectMemorySnapshot,
 //     takeHeapSnapshot,
@@ -18,15 +23,17 @@ const createServer = (): Application => {
     const app = express();
 
     app.use(logger.getCorrelationIdMiddleware());
+    app.use(seedCorrelation);
+    app.use(httpMetricsMiddleware);
     app.use(requestLogger);
     app.use(responseLogger);
     app.use(cors());
 
-    // // Prometheus metrics endpoint
-    // app.get('/metrics', async (_req: Request, res: Response) => {
-    //     res.set('Content-Type', promClient.register.contentType);
-    //     res.end(await promClient.register.metrics());
-    // });
+    // Prometheus metrics endpoint
+    app.get('/metrics', async (_req: Request, res: Response) => {
+        res.set('Content-Type', register.contentType);
+        res.end(await register.metrics());
+    });
 
     // // Detailed memory snapshot endpoint
     // app.get('/memory', (_req: Request, res: Response) => {
@@ -60,6 +67,7 @@ const createServer = (): Application => {
 
     app.use(express.json({ limit: '3mb' }));
     app.use(express.urlencoded({ extended: true }));
+    app.use(seedBecknContext);
 
     const base = '/mock/playground';
     app.use(`${base}`, router);

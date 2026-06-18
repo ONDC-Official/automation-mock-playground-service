@@ -15,7 +15,12 @@ import {
     MockStatusCode,
     SaveDataConfig,
 } from '../../types/mock-service-types';
-import logger from '@ondc/automation-logger';
+import logger from '../../observability/log';
+import { snapshot } from '../../observability/trace-context';
+import {
+    lbl,
+    mockFlowStateTransitionsTotal,
+} from '../../observability/metrics';
 
 const createTransactionalCache = (cache: ICacheService) => {
     const generateTransactionKey = (
@@ -104,7 +109,6 @@ const createTxnBusinessCache = (cache: ICacheService) => {
         sessionId: string
     ) => {
         const key = createMockSessionKey(transactionID, subscriberURL);
-        logger.debug('Fetching mock session data with key', { key });
         if ((await cache.exists(key)) === false) {
             logger.debug(
                 'No existing mock session data found, creating new entry',
@@ -294,6 +298,13 @@ const flowStatusCache = (cache: ICacheService) => {
                 MockFlowStatusCacheSchema,
                 60 * 60 * 5
             );
+            const t = snapshot();
+            mockFlowStateTransitionsTotal.inc({
+                to: lbl(flowStatus),
+                extra: 'false',
+                domain: lbl(t.domain),
+                version: lbl(t.version),
+            });
         } catch (error) {
             logger.error('Error in setting flow status', error);
         }
@@ -360,6 +371,13 @@ const flowStatusCache = (cache: ICacheService) => {
                 MockFlowStatusCacheSchema,
                 60 * 60 * 5
             );
+            const t = snapshot();
+            mockFlowStateTransitionsTotal.inc({
+                to: lbl(flowStatus),
+                extra: 'true',
+                domain: lbl(t.domain),
+                version: lbl(t.version),
+            });
         } catch (error) {
             logger.error('Error in setting extra flow status', error);
         }

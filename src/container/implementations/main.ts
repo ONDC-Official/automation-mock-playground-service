@@ -6,7 +6,7 @@ import 'dotenv/config';
 import validateEnv from '../../env';
 import { createRedisCacheService } from '../../cache/redis-cache';
 import { createInMemoryQueue } from '../../queue/InMemoryQueue';
-import logger from '@ondc/automation-logger';
+import logger from '../../observability/log';
 import ServiceContainer from '../container';
 import Redis from 'ioredis';
 import MockRunner from '@ondc/automation-mock-runner';

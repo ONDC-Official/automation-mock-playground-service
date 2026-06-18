@@ -11,7 +11,7 @@ import { logError } from '../utils/req-utils';
 import { getFlowCompleteStatus } from '../service/flows/flow-mapper';
 import { getLoggerData } from '../utils/logger/winston/loggerUtils';
 import { MappedStep } from '../types/mapped-flow-types';
-import logger from '@ondc/automation-logger';
+import logger from '../observability/log';
 import { FlowContext } from '../types/process-flow-types';
 import { IQueueService } from '../queue/IQueueService';
 import {
@@ -25,7 +25,7 @@ import {
     ApiServiceFormRequestJobParams,
 } from '../service/jobs/api-service-form-request';
 import { resolveFormActions, validateFormHtml } from '../utils/form-utils';
-import axios from 'axios';
+import { obsAxios } from '../observability/http-client';
 import MockRunner from '@ondc/automation-mock-runner';
 
 export function incomingRequestControllers(
@@ -336,6 +336,10 @@ async function handleValidationFailure(
         version: ctx.version,
         payload: errBody,
         subscriberUrl: subsUrl,
+        transactionId: ctx.transactionId,
+        flowId: ctx.flowId,
+        actionId: step.actionId,
+        isExtraStep: step.isExtraStep,
         queryParams: {
             flow_id: ctx.flowId,
             session_id: ctx.transactionData.sessionId || '',
@@ -366,7 +370,7 @@ async function processHtmlFormStep(
             return { shouldRespond: false };
         }
 
-        const formRaw = await axios.get<string>(formLink);
+        const formRaw = await obsAxios.get<string>(formLink);
         const fetchedHtml = formRaw.data;
 
         const validation = validateFormHtml(fetchedHtml);

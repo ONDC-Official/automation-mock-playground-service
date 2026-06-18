@@ -18,7 +18,7 @@ import {
 } from '../service/cache/config-cache';
 import {
     apiServiceRequestJobComplete,
-    apiServiceRequestJobFailed,
+    createApiServiceRequestJobFailed,
     ApiServiceRequestJobParams,
     createApiServiceRequestJobHandler,
     SEND_TO_API_SERVICE_JOB,
@@ -26,7 +26,7 @@ import {
 import {
     API_SERVICE_FORM_REQUEST_JOB,
     apiServiceFormRequestJobComplete,
-    apiServiceFormRequestJobFailed,
+    createApiServiceFormRequestJobFailed,
     ApiServiceFormRequestJobParams,
     createApiServiceFormRequestJobHandler,
 } from '../service/jobs/api-service-form-request';
@@ -210,7 +210,7 @@ class ServiceContainer {
         queue.on<ApiServiceRequestJobParams>(
             'failed',
             SEND_TO_API_SERVICE_JOB,
-            apiServiceRequestJobFailed
+            createApiServiceRequestJobFailed(this._workbenchCacheService!)
         );
         queue.on<ApiServiceFormRequestJobParams>(
             'completed',
@@ -220,7 +220,7 @@ class ServiceContainer {
         queue.on<ApiServiceFormRequestJobParams>(
             'failed',
             API_SERVICE_FORM_REQUEST_JOB,
-            apiServiceFormRequestJobFailed
+            createApiServiceFormRequestJobFailed(this._workbenchCacheService!)
         );
         return queue;
     }

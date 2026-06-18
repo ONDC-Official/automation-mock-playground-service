@@ -3,7 +3,7 @@ import { FlowContext } from '../../types/process-flow-types';
 import { MappedStep } from '../../types/mapped-flow-types';
 import { MockStatusCode } from '../../types/mock-service-types';
 import { SequenceStep } from '../../types/flow-types';
-import logger from '@ondc/automation-logger';
+import logger from '../../observability/log';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import {
     GENERATE_PAYLOAD_JOB,

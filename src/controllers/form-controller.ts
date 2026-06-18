@@ -13,7 +13,7 @@ import {
     handleGetFormService,
 } from '../service/forms/form-handlers';
 import { sendSuccess } from '../utils/res-utils';
-import logger from '@ondc/automation-logger';
+import logger from '../observability/log';
 import { IQueueService } from '../queue/IQueueService';
 
 export const newFormControllers = (

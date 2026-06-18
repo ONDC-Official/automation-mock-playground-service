@@ -2,7 +2,7 @@ import { IQueueService, QueueJob } from '../../queue/IQueueService';
 import { MappedStep } from '../../types/mapped-flow-types';
 import { FlowContext } from '../../types/process-flow-types';
 import { MockRunnerConfigCache } from '../cache/config-cache';
-import logger from '@ondc/automation-logger';
+import logger from '../../observability/log';
 import {
     ApiServiceRequestJobParams,
     SEND_TO_API_SERVICE_JOB,
@@ -10,6 +10,7 @@ import {
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import { getSaveDataConfig } from '../../utils/runner-utils';
 import { buildErrorPayload } from '../../utils/build-error-payload';
+import { resetStepToAvailable } from '../flows/flow-status-utils';
 
 export const GENERATE_PAYLOAD_JOB = 'GENERATE_PAYLOAD_JOB';
 
@@ -42,33 +43,12 @@ async function resetFlowStatusToAvailable(
     flowContext: FlowContext,
     actionMeta: MappedStep
 ): Promise<void> {
-    try {
-        const flowStatusService = workbenchCache.FlowStatusCacheService();
-        if (actionMeta.isExtraStep === true) {
-            await flowStatusService.setExtraFlowStatus(
-                flowContext.transactionId,
-                flowContext.subscriberUrl,
-                actionMeta.actionId,
-                'AVAILABLE'
-            );
-        } else {
-            await flowStatusService.setFlowStatus(
-                flowContext.transactionId,
-                flowContext.subscriberUrl,
-                'AVAILABLE'
-            );
-        }
-    } catch (e) {
-        logger.error(
-            'Failed to reset flow status to AVAILABLE',
-            {
-                transactionId: flowContext.transactionId,
-                flowId: flowContext.flowId,
-                actionId: actionMeta.actionId,
-            },
-            e as Error
-        );
-    }
+    await resetStepToAvailable(workbenchCache, {
+        transactionId: flowContext.transactionId,
+        subscriberUrl: flowContext.subscriberUrl,
+        actionId: actionMeta.actionId,
+        isExtraStep: actionMeta.isExtraStep,
+    });
 }
 
 export function createGeneratePayloadJobHandler(
@@ -266,6 +246,10 @@ export function createGenerationRequestCompleteHandler(
                 version: job.data.flowContext.version,
                 payload: payload ?? {},
                 subscriberUrl: job.data.flowContext.subscriberUrl,
+                transactionId: job.data.flowContext.transactionId,
+                flowId: job.data.flowContext.flowId,
+                actionId: job.data.actionMeta.actionId,
+                isExtraStep: job.data.actionMeta.isExtraStep,
                 queryParams: {
                     subscriber_url: job.data.flowContext.subscriberUrl,
                     flow_id: job.data.flowContext.flowId,

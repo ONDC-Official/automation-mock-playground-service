@@ -1,0 +1,169 @@
+{
+    "uid": "ondc-mock-overview",
+    "title": "ONDC Mock — Service Overview",
+    "tags": ["ondc", "mock-service"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 3,
+    "refresh": "10s",
+    "time": { "from": "now-6h", "to": "now" },
+    "templating": { "list": [] },
+    "panels": [
+        {
+            "id": 100,
+            "type": "row",
+            "title": "Totals (since process start)",
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+        },
+        {
+            "id": 1,
+            "type": "stat",
+            "title": "HTTP requests",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 4, "x": 0, "y": 1 },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(http_requests_total) or vector(0)" } ]
+        },
+        {
+            "id": 2,
+            "type": "stat",
+            "title": "HTTP 2xx",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 4, "x": 4, "y": 1 },
+            "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(http_requests_total{status=~\"2..\"}) or vector(0)" } ]
+        },
+        {
+            "id": 3,
+            "type": "stat",
+            "title": "HTTP 4xx",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 4, "x": 8, "y": 1 },
+            "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] } }, "overrides": [] },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(http_requests_total{status=~\"4..\"}) or vector(0)" } ]
+        },
+        {
+            "id": 4,
+            "type": "stat",
+            "title": "HTTP 5xx",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 4, "x": 12, "y": 1 },
+            "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(http_requests_total{status=~\"5..\"}) or vector(0)" } ]
+        },
+        {
+            "id": 5,
+            "type": "stat",
+            "title": "Jobs completed",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 4, "x": 16, "y": 1 },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(mock_jobs_completed_total) or vector(0)" } ]
+        },
+        {
+            "id": 6,
+            "type": "stat",
+            "title": "Jobs failed",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 4, "x": 20, "y": 1 },
+            "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(mock_jobs_failed_total) or vector(0)" } ]
+        },
+        {
+            "id": 101,
+            "type": "row",
+            "title": "HTTP",
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 }
+        },
+        {
+            "id": 10,
+            "type": "timeseries",
+            "title": "Request rate (by route, status)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+            "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "showPoints": "auto", "spanNulls": true } }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (route, status) (rate(http_requests_total[$__rate_interval]))", "legendFormat": "{{route}} ({{status}})" } ]
+        },
+        {
+            "id": 11,
+            "type": "timeseries",
+            "title": "Latency p50 / p95 / p99",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+            "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+            "targets": [
+                { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "p50" },
+                { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "p95" },
+                { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "p99" }
+            ]
+        },
+        {
+            "id": 12,
+            "type": "timeseries",
+            "title": "Responses by status",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+            "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (status) (rate(http_requests_total[$__rate_interval]))", "legendFormat": "{{status}}" } ]
+        },
+        {
+            "id": 13,
+            "type": "timeseries",
+            "title": "Error responses (4xx/5xx) by route",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+            "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (route, status) (rate(http_requests_total{status=~\"4..|5..\"}[$__rate_interval]))", "legendFormat": "{{route}} ({{status}})" } ]
+        },
+        {
+            "id": 102,
+            "type": "row",
+            "title": "Jobs & flows",
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }
+        },
+        {
+            "id": 14,
+            "type": "timeseries",
+            "title": "Job throughput (enqueued / completed / failed)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+            "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+            "targets": [
+                { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job_name) (rate(mock_jobs_enqueued_total[$__rate_interval]))", "legendFormat": "enqueued {{job_name}}" },
+                { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job_name) (rate(mock_jobs_completed_total[$__rate_interval]))", "legendFormat": "completed {{job_name}}" },
+                { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (job_name) (rate(mock_jobs_failed_total[$__rate_interval]))", "legendFormat": "failed {{job_name}}" }
+            ]
+        },
+        {
+            "id": 15,
+            "type": "timeseries",
+            "title": "Job duration p95 (by type)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 6, "x": 12, "y": 24 },
+            "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum by (le, job_name) (rate(mock_job_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{job_name}}" } ]
+        },
+        {
+            "id": 16,
+            "type": "timeseries",
+            "title": "Queue depth",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 6, "x": 18, "y": 24 },
+            "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "max by (queue) (mock_queue_depth)", "legendFormat": "{{queue}}" } ]
+        },
+        {
+            "id": 17,
+            "type": "timeseries",
+            "title": "Flow state transitions (by target status)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+            "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (to, domain, version) (rate(mock_flow_state_transitions_total[$__rate_interval]))", "legendFormat": "{{to}} · {{domain}} {{version}}" } ]
+        }
+    ]
+}

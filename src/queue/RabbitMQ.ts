@@ -5,8 +5,15 @@ import {
     QueueJob,
     QueueOptions,
 } from './IQueueService';
-import logger from '@ondc/automation-logger';
+import logger from '../observability/log';
 import { randomUUID } from 'crypto';
+import { run, snapshot } from '../observability/trace-context';
+import {
+    mockJobsEnqueuedTotal,
+    mockJobsCompletedTotal,
+    mockJobsFailedTotal,
+    mockJobDuration,
+} from '../observability/metrics';
 
 interface RabbitMQConfig {
     url: string;
@@ -162,68 +169,91 @@ const processMessage = async (
         return;
     }
 
+    const channel = state.channel;
     const job = parseJobMessage<unknown>(msg.content);
 
     if (!job) {
         logger.error('Invalid job message format');
-        state.channel.nack(msg, false, false);
+        channel.nack(msg, false, false);
         return;
     }
 
-    try {
-        const handler = state.handlers.get(jobName);
+    // Re-establish the originating request's trace context (serialized in the
+    // message) so all job logs + completed/failed handlers stay traceable.
+    await run(job.trace ?? {}, async () => {
+        const endTimer = mockJobDuration.startTimer({ job_name: jobName });
+        try {
+            const handler = state.handlers.get(jobName);
 
-        if (!handler) {
-            logger.error(`No handler registered for job: ${jobName}`);
-            state.channel.nack(msg, false, false);
-            return;
+            if (!handler) {
+                logger.error(`No handler registered for job: ${jobName}`);
+                channel.nack(msg, false, false);
+                return;
+            }
+
+            logger.info(`Processing job ${job.id} of type ${jobName}`);
+
+            const result = job.options?.timeout
+                ? await withTimeout(handler(job.data), job.options.timeout)
+                : await handler(job.data);
+
+            endTimer({ result: 'success' });
+            mockJobsCompletedTotal.inc({ job_name: jobName });
+            emitEvent(state, 'completed', job, result);
+            channel.ack(msg);
+            logger.info(`Job ${job.id} completed successfully`);
+        } catch (error) {
+            logger.error(
+                `Job ${job.id} failed`,
+                {
+                    event: 'job_failed',
+                    job_name: jobName,
+                    job_id: job.id,
+                    attempts_left: job.attemptsLeft - 1,
+                },
+                error
+            );
+
+            job.attemptsLeft -= 1;
+
+            if (job.attemptsLeft > 0) {
+                endTimer({ result: 'retry' });
+                const attemptNumber =
+                    (job.options?.attempts || 1) - job.attemptsLeft;
+                const delay = calculateRetryDelay(
+                    job.options || {},
+                    attemptNumber
+                );
+
+                logger.info(
+                    `Re-enqueuing job ${job.id} after ${delay}ms, attempts left: ${job.attemptsLeft}`
+                );
+
+                // Create or use existing retry queue
+                const retryQueueName = await setupRetryQueue(
+                    channel,
+                    jobName,
+                    delay
+                );
+
+                // Publish to retry queue
+                channel.publish(
+                    RETRY_EXCHANGE,
+                    retryQueueName,
+                    Buffer.from(JSON.stringify(job)),
+                    { persistent: true }
+                );
+
+                channel.ack(msg);
+            } else {
+                // Max retries exceeded
+                endTimer({ result: 'failure' });
+                mockJobsFailedTotal.inc({ job_name: jobName });
+                emitEvent(state, 'failed', job, undefined, error as Error);
+                channel.nack(msg, false, false); // Send to DLQ
+            }
         }
-
-        logger.info(`Processing job ${job.id} of type ${jobName}`);
-
-        const result = job.options?.timeout
-            ? await withTimeout(handler(job.data), job.options.timeout)
-            : await handler(job.data);
-
-        emitEvent(state, 'completed', job, result);
-        state.channel.ack(msg);
-        logger.info(`Job ${job.id} completed successfully`);
-    } catch (error) {
-        logger.error(`Job ${job.id} failed`, {}, error);
-
-        job.attemptsLeft -= 1;
-
-        if (job.attemptsLeft > 0 && state.channel) {
-            const attemptNumber =
-                (job.options?.attempts || 1) - job.attemptsLeft;
-            const delay = calculateRetryDelay(job.options || {}, attemptNumber);
-
-            logger.info(
-                `Re-enqueuing job ${job.id} after ${delay}ms, attempts left: ${job.attemptsLeft}`
-            );
-
-            // Create or use existing retry queue
-            const retryQueueName = await setupRetryQueue(
-                state.channel,
-                jobName,
-                delay
-            );
-
-            // Publish to retry queue
-            state.channel.publish(
-                RETRY_EXCHANGE,
-                retryQueueName,
-                Buffer.from(JSON.stringify(job)),
-                { persistent: true }
-            );
-
-            state.channel.ack(msg);
-        } else {
-            // Max retries exceeded
-            emitEvent(state, 'failed', job, undefined, error as Error);
-            state.channel?.nack(msg, false, false); // Send to DLQ
-        }
-    }
+    });
 };
 
 const connectToRabbitMQ = async (
@@ -348,7 +378,9 @@ export const createRabbitMQQueue = async (
                 jobName,
                 options,
                 attemptsLeft: options?.attempts || 1,
+                trace: snapshot(),
             };
+            mockJobsEnqueuedTotal.inc({ job_name: jobName });
 
             // Ensure queue exists
             await setupExchangesAndQueues(state.channel, jobName);
