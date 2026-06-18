@@ -12,6 +12,7 @@ import { getFlowCompleteStatus } from '../service/flows/flow-mapper';
 import { getLoggerData } from '../utils/logger/winston/loggerUtils';
 import { MappedStep } from '../types/mapped-flow-types';
 import logger from '../observability/log';
+import { set as setTrace } from '../observability/trace-context';
 import { FlowContext } from '../types/process-flow-types';
 import { IQueueService } from '../queue/IQueueService';
 import {
@@ -47,6 +48,14 @@ export function incomingRequestControllers(
                 }
                 const ctx = req.flowContext;
                 const payload = req.body;
+                setTrace({
+                    transaction_id: ctx.transactionId,
+                    session_id: ctx.sessionId,
+                    flow_id: ctx.flowId,
+                    domain: ctx.domain,
+                    version: ctx.version,
+                    message_id: payload?.context?.message_id,
+                });
                 const flowStatus = await workbenchCache
                     .FlowStatusCacheService()
                     .getFlowStatus(
@@ -161,6 +170,7 @@ async function processMatchingRequest(
     sequence: MappedStep[]
 ) {
     const { step, index } = matchingStep;
+    setTrace({ action: step.actionType, action_id: step.actionId });
     logger.info(
         `Processing matching step: ${step.actionId} at index ${index}`,
         getLoggerData(req)

@@ -22,6 +22,8 @@ export interface TraceContext {
     domain?: string;
     version?: string;
     action?: string;
+    /** The flow step identifier for the action (config `action_id`). */
+    action_id?: string;
     subscriber_url?: string;
 }
 

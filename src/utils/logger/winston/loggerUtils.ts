@@ -1,7 +1,9 @@
 import { MockRequest } from '../../../types/request-types';
+import { getStore } from '../../../observability/trace-context';
 
 export function getLoggerData(request: MockRequest) {
     return {
+        ...(getStore() ?? {}),
         correlationId: request.correlationId,
         flowId: request?.flowId,
         transactionId:

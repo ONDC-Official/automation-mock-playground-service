@@ -2,6 +2,7 @@ import axios from 'axios';
 import { obsAxios } from '../../observability/http-client';
 import { createApiServiceURL } from './api-service-request';
 import logger from '../../observability/log';
+import { set as setTrace } from '../../observability/trace-context';
 import { QueueJob } from '../../queue/IQueueService';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import { resetStepToAvailable } from '../flows/flow-status-utils';
@@ -26,6 +27,12 @@ export type ApiServiceFormRequestJobResult = {
 
 export function createApiServiceFormRequestJobHandler() {
     return async (data: ApiServiceFormRequestJobParams) => {
+        setTrace({
+            transaction_id: data.transactionId,
+            action_id: data.formActionId,
+            domain: data.domain,
+            version: data.version,
+        });
         try {
             const url = createApiServiceURL(
                 data.version,

@@ -15,6 +15,7 @@ import {
 import { sendSuccess } from '../utils/res-utils';
 import logger from '../observability/log';
 import { IQueueService } from '../queue/IQueueService';
+import { set as setTrace } from '../observability/trace-context';
 
 export const newFormControllers = (
     workbenchCache: WorkbenchCacheServiceType,
@@ -47,6 +48,14 @@ export const newFormControllers = (
                         data.transaction_id,
                         sessionData.subscriberUrl
                     );
+                setTrace({
+                    transaction_id: data.transaction_id,
+                    session_id: data.session_id,
+                    flow_id: transactionData.flowId,
+                    action_id: formId,
+                    domain,
+                    version: sessionData.version,
+                });
                 const runnerConfig = await mockRunnerCache.getMockRunnerConfig(
                     domain,
                     sessionData.version,
@@ -120,6 +129,14 @@ export const newFormControllers = (
                         data.transaction_id,
                         sessionData.subscriberUrl
                     );
+                setTrace({
+                    transaction_id: data.transaction_id,
+                    session_id: data.session_id,
+                    flow_id: transactionData.flowId,
+                    action_id: formId,
+                    domain,
+                    version: sessionData.version,
+                });
                 const runnerConfig = await mockRunnerCache.getMockRunnerConfig(
                     domain,
                     sessionData.version,

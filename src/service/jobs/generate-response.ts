@@ -3,6 +3,7 @@ import { MappedStep } from '../../types/mapped-flow-types';
 import { FlowContext } from '../../types/process-flow-types';
 import { MockRunnerConfigCache } from '../cache/config-cache';
 import logger from '../../observability/log';
+import { set as setTrace } from '../../observability/trace-context';
 import {
     ApiServiceRequestJobParams,
     SEND_TO_API_SERVICE_JOB,
@@ -57,6 +58,15 @@ export function createGeneratePayloadJobHandler(
 ) {
     return async (data: GenerateMockPayloadJobParams) => {
         const { flowContext, actionMeta } = data;
+        setTrace({
+            transaction_id: flowContext.transactionId,
+            session_id: flowContext.sessionId,
+            flow_id: flowContext.flowId,
+            domain: flowContext.domain,
+            version: flowContext.version,
+            action: actionMeta.actionType,
+            action_id: actionMeta.actionId,
+        });
         const logMeta = {
             transactionId: flowContext.transactionId,
             flowId: flowContext.flowId,
