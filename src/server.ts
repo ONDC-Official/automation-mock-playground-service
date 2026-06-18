@@ -70,6 +70,9 @@ const createServer = (): Application => {
     const base = '/mock/playground';
     app.use(`${base}`, router);
 
+// for local environment routing
+    app.use('/mock/:domain/:version', router);
+
     // Error Handling
     app.use(globalErrorHandler);
 
