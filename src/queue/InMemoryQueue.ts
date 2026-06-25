@@ -4,20 +4,24 @@ import {
     QueueJob,
     QueueOptions,
 } from './IQueueService';
-import logger from '../utils/logger';
-import {
-    getTraceContext,
-    runWithTraceContext,
-    TraceContext,
-} from '../utils/trace-context';
+import logger from '../observability/log';
 import { randomUUID } from 'crypto';
 import { setImmediate } from 'timers';
+import { run, snapshot } from '../observability/trace-context';
+import {
+    mockJobsEnqueuedTotal,
+    mockJobsCompletedTotal,
+    mockJobsFailedTotal,
+    mockJobDuration,
+    mockQueueDepth,
+} from '../observability/metrics';
+
+const QUEUE_LABEL = 'in-memory';
 
 interface QueuedJob<T> extends QueueJob<T> {
     options?: QueueOptions;
     jobName: string;
     attemptsLeft: number;
-    trace?: TraceContext;
 }
 
 interface QueueState {
@@ -56,10 +60,7 @@ const createJob = <T>(
     jobName,
     options,
     attemptsLeft: options?.attempts || 1,
-    // Snapshot the enqueuing request's trace context so the job's logs carry
-    // the same ids even though it runs on a later tick (outside the request's
-    // async context).
-    trace: { ...getTraceContext() },
+    trace: snapshot(),
 });
 
 const withTimeout = async <T>(
@@ -119,6 +120,7 @@ const processNextJob = async (state: QueueState): Promise<void> => {
     if (state.processing || state.queue.length === 0) return;
     state.processing = true;
     const job = state.queue.shift()!;
+    mockQueueDepth.set({ queue: QUEUE_LABEL }, state.queue.length);
     const handler = state.handlers.get(job.jobName);
 
     if (!handler) {
@@ -128,24 +130,38 @@ const processNextJob = async (state: QueueState): Promise<void> => {
         return;
     }
 
+    // Re-establish the originating request's trace context for the duration of
+    // the handler and its completed/failed event handlers, so job logs carry
+    // the same transaction_id/session_id/domain/version.
     try {
-        // Re-establish the snapshotted trace context so the handler, event
-        // handlers, and job logs all carry the originating request's ids.
-        await runWithTraceContext(job.trace ?? {}, async () => {
+        await run(job.trace ?? {}, async () => {
+            const endTimer = mockJobDuration.startTimer({
+                job_name: job.jobName,
+            });
             try {
                 const result = job.options?.timeout
                     ? await withTimeout(handler(job.data), job.options.timeout)
                     : await handler(job.data);
 
+                endTimer({ result: 'success' });
+                mockJobsCompletedTotal.inc({ job_name: job.jobName });
                 emitEvent(state, 'completed', job, result);
                 logger.info(`Job ${job.id} completed successfully.`);
             } catch (error) {
                 logger.error(
-                    `Job ${job.id} failed: ${(error as Error).message}`
+                    `Job ${job.id} failed`,
+                    {
+                        event: 'job_failed',
+                        job_name: job.jobName,
+                        job_id: job.id,
+                        attempts_left: job.attemptsLeft - 1,
+                    },
+                    error
                 );
                 job.attemptsLeft -= 1;
 
                 if (job.attemptsLeft > 0) {
+                    endTimer({ result: 'retry' });
                     const delay = calculateRetryDelay(
                         job.options || {},
                         (job.options?.attempts || 1) - job.attemptsLeft
@@ -155,9 +171,15 @@ const processNextJob = async (state: QueueState): Promise<void> => {
                     );
                     setTimeout(() => {
                         state.queue.push(job);
+                        mockQueueDepth.set(
+                            { queue: QUEUE_LABEL },
+                            state.queue.length
+                        );
                         scheduleProcessing(state); // ✅ Trigger processing after retry
                     }, delay);
                 } else {
+                    endTimer({ result: 'failure' });
+                    mockJobsFailedTotal.inc({ job_name: job.jobName });
                     emitEvent(state, 'failed', job, undefined, error as Error);
                 }
             }
@@ -193,6 +215,8 @@ export const createInMemoryQueue = (): IQueueService => {
         ): Promise<string> {
             const job = createJob(jobName, data, options);
             state.queue.push(job);
+            mockJobsEnqueuedTotal.inc({ job_name: jobName });
+            mockQueueDepth.set({ queue: QUEUE_LABEL }, state.queue.length);
             logger.info(`Enqueued job ${job.id} of type ${jobName}`);
             scheduleProcessing(state); // ✅ Trigger processing immediately
             return job.id;

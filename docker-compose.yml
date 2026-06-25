@@ -17,6 +17,13 @@ services:
             API_SERVICE_URL: ${API_SERVICE_URL}
             CONFIG_SERVICE_URL: ${CONFIG_SERVICE_URL}
 
+            # Observability — winston-loki ships logs to Loki; /metrics is scraped
+            # by Prometheus. Body capture defaults to outbound (egress) only.
+            SERVICE_NAME: ${SERVICE_NAME:-ondc-playground-mock-service}
+            LOKI_HOST: ${LOKI_HOST:-http://loki:3100}
+            OBS_LOG_BODIES: ${OBS_LOG_BODIES:-egress}
+            LOG_BODY_MAX_BYTES: ${LOG_BODY_MAX_BYTES:-16384}
+
             # Redis Configuration
             REDIS_HOST: ${REDIS_HOST:-}
             REDIS_PORT: ${REDIS_PORT:-6379}
@@ -53,7 +60,9 @@ services:
         container_name: ondc-redis
         restart: unless-stopped
         ports:
-            - '6379:6379'
+            # Host-published on 6380 by default to avoid clashing with a native
+            # redis on 6379. The app still reaches it internally as redis:6379.
+            - '${REDIS_HOST_PORT:-6380}:6379'
         command: >
             redis-server
             --appendonly yes

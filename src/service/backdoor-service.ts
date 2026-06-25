@@ -1,5 +1,5 @@
 import { ClearFlowsQuery, ClearFlowsResult } from '../types/backdoor-types';
-import logger from '../utils/logger';
+import logger from '../observability/log';
 import { MockRunnerConfigCache } from './cache/config-cache';
 
 export class BackdoorService {

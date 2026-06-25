@@ -1,0 +1,185 @@
+{
+    "uid": "ondc-mock-infra",
+    "title": "ONDC Mock — Infra & Dependencies",
+    "tags": ["ondc", "mock-service", "infra"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 2,
+    "refresh": "10s",
+    "time": { "from": "now-6h", "to": "now" },
+    "templating": { "list": [] },
+    "panels": [
+        {
+            "id": 100,
+            "type": "row",
+            "title": "Totals (since process start)",
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+        },
+        {
+            "id": 1,
+            "type": "stat",
+            "title": "Cache hits",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 5, "x": 0, "y": 1 },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(cache_operations_total{result=\"hit\"}) or vector(0)" } ]
+        },
+        {
+            "id": 2,
+            "type": "stat",
+            "title": "Cache misses",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 5, "x": 5, "y": 1 },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(cache_operations_total{result=\"miss\"}) or vector(0)" } ]
+        },
+        {
+            "id": 3,
+            "type": "stat",
+            "title": "Cache errors",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 4, "x": 10, "y": 1 },
+            "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(cache_operations_total{result=\"error\"}) or vector(0)" } ]
+        },
+        {
+            "id": 4,
+            "type": "stat",
+            "title": "External calls",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 5, "x": 14, "y": 1 },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(external_requests_total) or vector(0)" } ]
+        },
+        {
+            "id": 5,
+            "type": "stat",
+            "title": "External 4xx/5xx",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 5, "w": 5, "x": 19, "y": 1 },
+            "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(external_requests_total{status=~\"4..|5..\"}) or vector(0)" } ]
+        },
+        {
+            "id": 101,
+            "type": "row",
+            "title": "Cache & external dependencies",
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 }
+        },
+        {
+            "id": 10,
+            "type": "timeseries",
+            "title": "Cache hit ratio (by db)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+            "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (db) (rate(cache_operations_total{result=\"hit\"}[$__rate_interval])) / clamp_min(sum by (db) (rate(cache_operations_total{cache_op=\"get\"}[$__rate_interval])), 0.0001)", "legendFormat": "db {{db}}" } ]
+        },
+        {
+            "id": 11,
+            "type": "timeseries",
+            "title": "Cache op latency p95 (by op, db)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+            "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum by (le, cache_op, db) (rate(cache_operation_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{cache_op}} db{{db}}" } ]
+        },
+        {
+            "id": 12,
+            "type": "timeseries",
+            "title": "External calls rate (by target, status)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+            "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (target, status) (rate(external_requests_total[$__rate_interval]))", "legendFormat": "{{target}} {{status}}" } ]
+        },
+        {
+            "id": 13,
+            "type": "timeseries",
+            "title": "External call latency p95 (by target)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+            "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum by (le, target) (rate(external_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{target}}" } ]
+        },
+        {
+            "id": 102,
+            "type": "row",
+            "title": "Redis & runtime",
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }
+        },
+        {
+            "id": 20,
+            "type": "stat",
+            "title": "Redis health (by db)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 7, "w": 6, "x": 0, "y": 24 },
+            "fieldConfig": {
+                "defaults": {
+                    "mappings": [ { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } } ],
+                    "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
+                },
+                "overrides": []
+            },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "redis_health_status", "legendFormat": "db {{db}}" } ]
+        },
+        {
+            "id": 21,
+            "type": "timeseries",
+            "title": "Redis response time (by db)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 7, "w": 10, "x": 6, "y": 24 },
+            "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "redis_response_time_ms", "legendFormat": "db {{db}}" } ]
+        },
+        {
+            "id": 22,
+            "type": "timeseries",
+            "title": "Event loop lag",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 7, "w": 8, "x": 16, "y": 24 },
+            "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+            "targets": [
+                { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "nodejs_eventloop_lag_seconds{job=\"ondc-mock-service\"}", "legendFormat": "mean" },
+                { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "nodejs_eventloop_lag_p99_seconds{job=\"ondc-mock-service\"}", "legendFormat": "p99" }
+            ]
+        },
+        {
+            "id": 23,
+            "type": "timeseries",
+            "title": "Memory (rss / heap used)",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 7, "w": 8, "x": 0, "y": 31 },
+            "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+            "targets": [
+                { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "process_resident_memory_bytes{job=\"ondc-mock-service\"}", "legendFormat": "rss" },
+                { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "nodejs_heap_size_used_bytes{job=\"ondc-mock-service\"}", "legendFormat": "heap used" }
+            ]
+        },
+        {
+            "id": 24,
+            "type": "timeseries",
+            "title": "System CPU / memory %",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 7, "w": 8, "x": 8, "y": 31 },
+            "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+            "targets": [
+                { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "system_cpu_usage_percent", "legendFormat": "cpu" },
+                { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "system_memory_usage_percent", "legendFormat": "mem" }
+            ]
+        },
+        {
+            "id": 25,
+            "type": "stat",
+            "title": "Unhandled rejections/exceptions",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "gridPos": { "h": 7, "w": 8, "x": 16, "y": 31 },
+            "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } }, "overrides": [] },
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+            "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(process_unhandled_total) or vector(0)" } ]
+        }
+    ]
+}

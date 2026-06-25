@@ -13,9 +13,9 @@ import {
     handleGetFormService,
 } from '../service/forms/form-handlers';
 import { sendSuccess } from '../utils/res-utils';
-import logger from '../utils/logger';
+import logger from '../observability/log';
 import { IQueueService } from '../queue/IQueueService';
-import { setTraceContext } from '../utils/trace-context';
+import { set as setTrace } from '../observability/trace-context';
 
 export const newFormControllers = (
     workbenchCache: WorkbenchCacheServiceType,
@@ -48,11 +48,11 @@ export const newFormControllers = (
                         data.transaction_id,
                         sessionData.subscriberUrl
                     );
-                setTraceContext({
-                    transactionId: data.transaction_id,
-                    sessionId: data.session_id,
-                    flowId: transactionData.flowId,
-                    actionId: formId,
+                setTrace({
+                    transaction_id: data.transaction_id,
+                    session_id: data.session_id,
+                    flow_id: transactionData.flowId,
+                    action_id: formId,
                     domain,
                     version: sessionData.version,
                 });
@@ -129,11 +129,11 @@ export const newFormControllers = (
                         data.transaction_id,
                         sessionData.subscriberUrl
                     );
-                setTraceContext({
-                    transactionId: data.transaction_id,
-                    sessionId: data.session_id,
-                    flowId: transactionData.flowId,
-                    actionId: formId,
+                setTrace({
+                    transaction_id: data.transaction_id,
+                    session_id: data.session_id,
+                    flow_id: transactionData.flowId,
+                    action_id: formId,
                     domain,
                     version: sessionData.version,
                 });
