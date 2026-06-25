@@ -5,7 +5,8 @@ import './container/implementations/main';
 
 import createServer from './server';
 import config from './config/server-config';
-import logger from './utils/logger';
+import logger from './observability/log';
+import { processUnhandledTotal } from './observability/metrics';
 
 const app = createServer();
 
@@ -35,10 +36,22 @@ process.on('SIGINT', () => shutdown(0));
 
 // ---- Fatal error handlers ----
 process.on('uncaughtException', err => {
+    processUnhandledTotal.inc({ kind: 'exception' });
+    logger.error(
+        'uncaughtException',
+        { event: 'error', component: 'process' },
+        err
+    );
     shutdown(1, err);
 });
 
 process.on('unhandledRejection', (reason: unknown) => {
     const error = reason instanceof Error ? reason : new Error(String(reason));
+    processUnhandledTotal.inc({ kind: 'rejection' });
+    logger.error(
+        'unhandledRejection',
+        { event: 'error', component: 'process' },
+        error
+    );
     shutdown(1, error);
 });

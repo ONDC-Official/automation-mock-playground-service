@@ -3,8 +3,11 @@ import { FlowContext } from '../../types/process-flow-types';
 import { MappedStep } from '../../types/mapped-flow-types';
 import { MockStatusCode } from '../../types/mock-service-types';
 import { SequenceStep } from '../../types/flow-types';
-import logger from '../../utils/logger';
-import { setTraceContext } from '../../utils/trace-context';
+import logger from '../../observability/log';
+import {
+    set as setTrace,
+    fromFlowContext,
+} from '../../observability/trace-context';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import {
     GENERATE_PAYLOAD_JOB,
@@ -36,13 +39,7 @@ export async function actOnFlowService(
     workbenchCache: WorkbenchCacheServiceType,
     queueService: IQueueService
 ): Promise<ActionUponFlowResponse> {
-    setTraceContext({
-        transactionId: params.transactionId,
-        sessionId: params.sessionId,
-        flowId: params.flowId,
-        domain: params.domain,
-        version: params.version,
-    });
+    setTrace(fromFlowContext(params));
     const loggingMeta = {
         transactionId: params.transactionId,
         flowId: params.flowId,
@@ -295,7 +292,7 @@ async function dispatchTarget(
     businessCache: Record<string, unknown>
 ): Promise<string> {
     const isExtra = target.isExtraStep === true;
-    setTraceContext({ action: target.actionType, actionId: target.actionId });
+    setTrace({ action: target.actionType, action_id: target.actionId });
 
     if (isExtra) {
         await workbenchCache

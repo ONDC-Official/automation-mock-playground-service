@@ -28,8 +28,11 @@ import {
     attachFlowContext,
 } from '../types/process-flow-types';
 import { getLoggerMeta, logError } from '../utils/req-utils';
-import logger from '../utils/logger';
-import { setTraceContext } from '../utils/trace-context';
+import logger from '../observability/log';
+import {
+    set as setTrace,
+    fromFlowContext,
+} from '../observability/trace-context';
 
 export const flowControllers = (
     queueService: IQueueService,
@@ -69,15 +72,7 @@ export const flowControllers = (
                 domain: sessionData.domain,
                 version: sessionData.version,
             });
-            setTraceContext({
-                transactionId,
-                sessionId,
-                flowId,
-                action: context.action,
-                domain: sessionData.domain,
-                version: sessionData.version,
-                messageId: context.message_id,
-            });
+            setTrace(fromFlowContext(req.flowContext!));
             next();
         } catch (error) {
             logError(req, 'receivePayloadFromApiService failed', error);
@@ -141,13 +136,7 @@ export const flowControllers = (
                     apiList: [],
                 },
             });
-            setTraceContext({
-                transactionId,
-                sessionId: body.session_id,
-                flowId: body.flow_id,
-                domain: sessionData.domain,
-                version: sessionData.version,
-            });
+            setTrace(fromFlowContext(req.flowContext!));
             logger.info(
                 `new flow with ID: ${body.flow_id} for transaction: ${transactionId} information attached to request`
             );
@@ -218,14 +207,7 @@ export const flowControllers = (
                 trigger_extra: body.trigger_extra,
             });
 
-            setTraceContext({
-                transactionId: body.transaction_id,
-                sessionId: body.session_id,
-                flowId: transactionData.flowId,
-                domain: sessionData.domain,
-                version: sessionData.version,
-            });
-
+            setTrace(fromFlowContext(req.flowContext!));
             next();
         } catch (error) {
             logError(req, 'proceedWithFlowController failed', error);
@@ -271,12 +253,13 @@ export const flowControllers = (
                 .TransactionalCacheService()
                 .getTransactionData(query.transaction_id, subscriberUrl);
 
-            setTraceContext({
-                transactionId: query.transaction_id,
-                sessionId: query.session_id,
-                flowId: transactionData.flowId,
+            setTrace({
+                transaction_id: query.transaction_id,
+                session_id: query.session_id,
+                flow_id: transactionData.flowId,
                 domain: sessionData.domain,
                 version: sessionData.version,
+                subscriber_url: subscriberUrl,
             });
 
             const mockSessionData = await workbenchCache

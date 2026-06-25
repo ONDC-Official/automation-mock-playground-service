@@ -7,7 +7,8 @@ import {
     OndcProtocolError,
 } from '../errors/custom-errors';
 import { getBecknContext, getLoggerMeta } from '../utils/req-utils';
-import logger from '../utils/logger';
+import logger from '../observability/log';
+import { mockErrorsTotal } from '../observability/metrics';
 
 export const globalErrorHandler = (
     err: Error,
@@ -15,9 +16,14 @@ export const globalErrorHandler = (
     res: Response,
     next: NextFunction
 ) => {
+    const errorType = err?.constructor?.name ?? 'Error';
+    mockErrorsTotal.inc({ error_type: errorType, component: 'http' });
     logger.error(
-        'Error occurred while processing request',
+        'error',
         {
+            event: 'error',
+            component: 'http',
+            error_type: errorType,
             ...getLoggerMeta(req),
         },
         err

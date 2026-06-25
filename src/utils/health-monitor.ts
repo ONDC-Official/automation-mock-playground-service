@@ -1,6 +1,6 @@
 import os from 'os';
 import promClient from 'prom-client';
-import logger from './logger';
+import logger from '../observability/log';
 import ServiceContainer from '../container/container';
 import { ICacheService } from '../cache/cache-interface';
 import { z } from 'zod';
@@ -165,6 +165,9 @@ export class HealthMonitor {
 
         this.monitoringInterval = setInterval(() => {
             this.collectMetrics();
+            // Also refresh redis/queue health gauges so the dashboards stay
+            // current without depending on external /health probes.
+            this.getHealthStatus().catch(() => {});
         }, intervalMs);
 
         this.collectMetrics();

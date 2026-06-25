@@ -1,0 +1,81 @@
+groups:
+    - name: ondc-mock-service
+      rules:
+          - alert: HighHttp5xxRatio
+            expr: >
+                sum(rate(http_requests_total{status=~"5.."}[5m]))
+                / clamp_min(sum(rate(http_requests_total[5m])), 1) > 0.05
+            for: 5m
+            labels:
+                severity: critical
+            annotations:
+                summary: 'High 5xx error ratio (>5%)'
+                description: '5xx ratio is {{ $value | humanizePercentage }} over 5m.'
+
+          - alert: NackSpike
+            expr: sum(rate(mock_nack_total[5m])) > 1
+            for: 10m
+            labels:
+                severity: warning
+            annotations:
+                summary: 'Elevated ONDC NACK rate'
+                description: 'NACK rate is {{ $value | printf "%.2f" }}/s over 5m.'
+
+          - alert: JobFailuresHigh
+            expr: sum(rate(mock_jobs_failed_total[5m])) > 0.1
+            for: 10m
+            labels:
+                severity: warning
+            annotations:
+                summary: 'Job failures elevated'
+                description: '{{ $value | printf "%.2f" }} job failures/s over 5m.'
+
+          - alert: QueueBacklog
+            expr: max(mock_queue_depth) > 100
+            for: 10m
+            labels:
+                severity: warning
+            annotations:
+                summary: 'Queue depth high (>100)'
+
+          - alert: StuckFlows
+            expr: >
+                sum(rate(mock_flow_state_transitions_total{to="WORKING"}[15m])) > 0
+                and sum(rate(mock_flow_state_transitions_total{to="AVAILABLE"}[15m])) == 0
+            for: 15m
+            labels:
+                severity: warning
+            annotations:
+                summary: 'Flows entering WORKING without returning to AVAILABLE (possible stuck flows)'
+
+          - alert: RedisDown
+            expr: redis_health_status == 0
+            for: 1m
+            labels:
+                severity: critical
+            annotations:
+                summary: 'Redis {{ $labels.db }} is down'
+
+          - alert: EventLoopLagHigh
+            expr: nodejs_eventloop_lag_seconds > 0.2
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: 'Event loop lag > 200ms'
+
+          - alert: UnhandledRejections
+            expr: increase(process_unhandled_total[10m]) > 0
+            for: 1m
+            labels:
+                severity: warning
+            annotations:
+                summary: 'Unhandled rejection/exception observed'
+
+          - alert: ScrapeTargetDown
+            expr: up{job="ondc-mock-service"} == 0
+            for: 2m
+            labels:
+                severity: critical
+            annotations:
+                summary: 'Mock service scrape target is down'

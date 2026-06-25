@@ -1,8 +1,17 @@
+import type { TraceContext } from '../observability/trace-context';
+
 export interface QueueJob<T> {
     jobName: string;
     id: string;
     data: T;
     timestamp: Date;
+    /**
+     * Trace envelope captured at enqueue time. Carries the originating request's
+     * transaction_id/session_id/domain/version into the (async, possibly
+     * cross-process) consumer so job logs remain traceable. For RabbitMQ it
+     * rides inside the JSON-serialized message and survives retries/DLQ.
+     */
+    trace?: TraceContext;
 }
 
 export interface QueueOptions {
