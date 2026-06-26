@@ -1,10 +1,7 @@
 import axios from 'axios';
-import { obsAxios } from '../../observability/http-client';
 import { QueueJob } from '../../queue/IQueueService';
-import logger from '../../observability/log';
-import { set as setTrace } from '../../observability/trace-context';
-import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
-import { resetStepToAvailable } from '../flows/flow-status-utils';
+import logger from '../../utils/logger';
+import { setTraceContext } from '../../utils/trace-context';
 
 export const SEND_TO_API_SERVICE_JOB = 'SEND_TO_API_SERVICE_JOB';
 
@@ -14,11 +11,6 @@ export type ApiServiceRequestJobParams = {
     version: string;
     payload: unknown;
     subscriberUrl: string;
-    // Identifiers needed to free the flow step on terminal failure.
-    transactionId: string;
-    flowId: string;
-    actionId: string;
-    isExtraStep?: boolean;
     queryParams?: Record<string, string>;
 };
 
@@ -30,12 +22,12 @@ export type ApiServiceRequestJobResult = {
 
 export function createApiServiceRequestJobHandler() {
     return async (data: ApiServiceRequestJobParams) => {
-        setTrace({
+        setTraceContext({
             action: data.action,
             domain: data.domain,
             version: data.version,
-            flow_id: data.queryParams?.flow_id,
-            session_id: data.queryParams?.session_id,
+            flowId: data.queryParams?.flow_id,
+            sessionId: data.queryParams?.session_id,
         });
         try {
             const url = createApiServiceURL(
@@ -47,7 +39,7 @@ export function createApiServiceRequestJobHandler() {
                 url,
                 queryParams: data.queryParams,
             });
-            const res = await obsAxios.post(url, data.payload, {
+            const res = await axios.post(url, data.payload, {
                 params: {
                     ...data.queryParams,
                 },
@@ -58,25 +50,18 @@ export function createApiServiceRequestJobHandler() {
                 responseBody: res.data,
             };
         } catch (error) {
-            logger.error(
-                'API service request failed',
-                {
-                    event: 'error',
-                    component: 'job',
-                    job_name: SEND_TO_API_SERVICE_JOB,
-                    action: data.action,
-                    domain: data.domain,
-                    version: data.version,
-                    statusCode: axios.isAxiosError(error)
-                        ? error.response?.status
-                        : undefined,
-                },
-                error
-            );
-            // Re-throw so the queue marks the job FAILED (firing on('failed') →
-            // flow reset + failure metric) instead of silently completing.
-            // A swallowed failure here leaves the flow stuck in WORKING.
-            throw error;
+            logger.error('API service request failed', {}, { error });
+            if (!axios.isAxiosError(error)) {
+                return {
+                    success: false,
+                    message: 'Unknown error occurred',
+                };
+            }
+            return {
+                success: false,
+                statusCode: error.response?.status,
+                responseBody: error.response?.data,
+            };
         }
     };
 }
@@ -91,35 +76,15 @@ export function apiServiceRequestJobComplete(
     });
 }
 
-export function createApiServiceRequestJobFailed(
-    workbenchCache: WorkbenchCacheServiceType
-) {
-    return async (
-        job: QueueJob<ApiServiceRequestJobParams>,
-        _result?: unknown,
-        error?: Error
-    ): Promise<void> => {
-        logger.error(
-            'API service request job failed',
-            {
-                event: 'error',
-                component: 'job',
-                job_name: SEND_TO_API_SERVICE_JOB,
-                jobId: job?.id,
-                transactionId: job?.data?.transactionId,
-                actionId: job?.data?.actionId,
-            },
-            error
-        );
-        if (job?.data?.transactionId && job?.data?.subscriberUrl) {
-            await resetStepToAvailable(workbenchCache, {
-                transactionId: job.data.transactionId,
-                subscriberUrl: job.data.subscriberUrl,
-                actionId: job.data.actionId,
-                isExtraStep: job.data.isExtraStep,
-            });
-        }
-    };
+export function apiServiceRequestJobFailed(
+    job: QueueJob<ApiServiceRequestJobParams>,
+    result: unknown,
+    error?: Error
+): void {
+    logger.error('API service request job failed', {
+        jobId: job?.id,
+        error,
+    });
 }
 
 export function createApiServiceURL(

@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { sendError } from '../utils/res-utils';
-import logger from '../observability/log';
+import logger from '../utils/logger';
 
 export function requireJsonContent(
     req: Request,

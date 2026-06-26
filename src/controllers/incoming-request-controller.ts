@@ -11,8 +11,8 @@ import { logError } from '../utils/req-utils';
 import { getFlowCompleteStatus } from '../service/flows/flow-mapper';
 import { getLoggerData } from '../utils/logger/winston/loggerUtils';
 import { MappedStep } from '../types/mapped-flow-types';
-import logger from '../observability/log';
-import { set as setTrace } from '../observability/trace-context';
+import logger from '../utils/logger';
+import { setTraceContext } from '../utils/trace-context';
 import { FlowContext } from '../types/process-flow-types';
 import { IQueueService } from '../queue/IQueueService';
 import {
@@ -26,7 +26,7 @@ import {
     ApiServiceFormRequestJobParams,
 } from '../service/jobs/api-service-form-request';
 import { resolveFormActions, validateFormHtml } from '../utils/form-utils';
-import { obsAxios } from '../observability/http-client';
+import axios from 'axios';
 import MockRunner from '@ondc/automation-mock-runner';
 
 export function incomingRequestControllers(
@@ -48,13 +48,13 @@ export function incomingRequestControllers(
                 }
                 const ctx = req.flowContext;
                 const payload = req.body;
-                setTrace({
-                    transaction_id: ctx.transactionId,
-                    session_id: ctx.sessionId,
-                    flow_id: ctx.flowId,
+                setTraceContext({
+                    transactionId: ctx.transactionId,
+                    sessionId: ctx.sessionId,
+                    flowId: ctx.flowId,
                     domain: ctx.domain,
                     version: ctx.version,
-                    message_id: payload?.context?.message_id,
+                    messageId: payload?.context?.message_id,
                 });
                 const flowStatus = await workbenchCache
                     .FlowStatusCacheService()
@@ -170,7 +170,7 @@ async function processMatchingRequest(
     sequence: MappedStep[]
 ) {
     const { step, index } = matchingStep;
-    setTrace({ action: step.actionType, action_id: step.actionId });
+    setTraceContext({ action: step.actionType, actionId: step.actionId });
     logger.info(
         `Processing matching step: ${step.actionId} at index ${index}`,
         getLoggerData(req)
@@ -346,10 +346,6 @@ async function handleValidationFailure(
         version: ctx.version,
         payload: errBody,
         subscriberUrl: subsUrl,
-        transactionId: ctx.transactionId,
-        flowId: ctx.flowId,
-        actionId: step.actionId,
-        isExtraStep: step.isExtraStep,
         queryParams: {
             flow_id: ctx.flowId,
             session_id: ctx.transactionData.sessionId || '',
@@ -380,7 +376,7 @@ async function processHtmlFormStep(
             return { shouldRespond: false };
         }
 
-        const formRaw = await obsAxios.get<string>(formLink);
+        const formRaw = await axios.get<string>(formLink);
         const fetchedHtml = formRaw.data;
 
         const validation = validateFormHtml(fetchedHtml);

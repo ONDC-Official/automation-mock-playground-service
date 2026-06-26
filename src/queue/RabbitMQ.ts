@@ -5,15 +5,13 @@ import {
     QueueJob,
     QueueOptions,
 } from './IQueueService';
-import logger from '../observability/log';
-import { randomUUID } from 'crypto';
-import { run, snapshot } from '../observability/trace-context';
+import logger from '../utils/logger';
 import {
-    mockJobsEnqueuedTotal,
-    mockJobsCompletedTotal,
-    mockJobsFailedTotal,
-    mockJobDuration,
-} from '../observability/metrics';
+    getTraceContext,
+    runWithTraceContext,
+    TraceContext,
+} from '../utils/trace-context';
+import { randomUUID } from 'crypto';
 
 interface RabbitMQConfig {
     url: string;
@@ -25,6 +23,7 @@ interface QueuedJob<T> extends QueueJob<T> {
     options?: QueueOptions;
     jobName: string;
     attemptsLeft: number;
+    trace?: TraceContext;
 }
 
 // ✅ Fixed: Event handlers now keyed by job name
@@ -169,25 +168,23 @@ const processMessage = async (
         return;
     }
 
-    const channel = state.channel;
     const job = parseJobMessage<unknown>(msg.content);
 
     if (!job) {
         logger.error('Invalid job message format');
-        channel.nack(msg, false, false);
+        state.channel.nack(msg, false, false);
         return;
     }
 
-    // Re-establish the originating request's trace context (serialized in the
-    // message) so all job logs + completed/failed handlers stay traceable.
-    await run(job.trace ?? {}, async () => {
-        const endTimer = mockJobDuration.startTimer({ job_name: jobName });
+    // Restore the trace context serialized at enqueue so the handler, event
+    // handlers, and job logs all carry the originating request's ids.
+    await runWithTraceContext(job.trace ?? {}, async () => {
         try {
             const handler = state.handlers.get(jobName);
 
             if (!handler) {
                 logger.error(`No handler registered for job: ${jobName}`);
-                channel.nack(msg, false, false);
+                state.channel!.nack(msg, false, false);
                 return;
             }
 
@@ -197,27 +194,15 @@ const processMessage = async (
                 ? await withTimeout(handler(job.data), job.options.timeout)
                 : await handler(job.data);
 
-            endTimer({ result: 'success' });
-            mockJobsCompletedTotal.inc({ job_name: jobName });
             emitEvent(state, 'completed', job, result);
-            channel.ack(msg);
+            state.channel!.ack(msg);
             logger.info(`Job ${job.id} completed successfully`);
         } catch (error) {
-            logger.error(
-                `Job ${job.id} failed`,
-                {
-                    event: 'job_failed',
-                    job_name: jobName,
-                    job_id: job.id,
-                    attempts_left: job.attemptsLeft - 1,
-                },
-                error
-            );
+            logger.error(`Job ${job.id} failed`, {}, error);
 
             job.attemptsLeft -= 1;
 
-            if (job.attemptsLeft > 0) {
-                endTimer({ result: 'retry' });
+            if (job.attemptsLeft > 0 && state.channel) {
                 const attemptNumber =
                     (job.options?.attempts || 1) - job.attemptsLeft;
                 const delay = calculateRetryDelay(
@@ -231,26 +216,24 @@ const processMessage = async (
 
                 // Create or use existing retry queue
                 const retryQueueName = await setupRetryQueue(
-                    channel,
+                    state.channel,
                     jobName,
                     delay
                 );
 
                 // Publish to retry queue
-                channel.publish(
+                state.channel.publish(
                     RETRY_EXCHANGE,
                     retryQueueName,
                     Buffer.from(JSON.stringify(job)),
                     { persistent: true }
                 );
 
-                channel.ack(msg);
+                state.channel.ack(msg);
             } else {
                 // Max retries exceeded
-                endTimer({ result: 'failure' });
-                mockJobsFailedTotal.inc({ job_name: jobName });
                 emitEvent(state, 'failed', job, undefined, error as Error);
-                channel.nack(msg, false, false); // Send to DLQ
+                state.channel?.nack(msg, false, false); // Send to DLQ
             }
         }
     });
@@ -378,9 +361,10 @@ export const createRabbitMQQueue = async (
                 jobName,
                 options,
                 attemptsLeft: options?.attempts || 1,
-                trace: snapshot(),
+                // Serialize the enqueuing request's trace context into the
+                // message so the consumer (a separate process) can restore it.
+                trace: { ...getTraceContext() },
             };
-            mockJobsEnqueuedTotal.inc({ job_name: jobName });
 
             // Ensure queue exists
             await setupExchangesAndQueues(state.channel, jobName);

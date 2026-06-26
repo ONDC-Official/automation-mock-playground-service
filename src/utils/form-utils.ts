@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import logger from '../observability/log';
+import logger from './logger';
 
 /**
  * Resolves <form action> URLs in an HTML string against a base URL.
