@@ -40,7 +40,7 @@ jobs:
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
 
-          if [[ "${{ github.ref_name }}" == release-* ]]; then
+          if [[ "${{ github.ref_name }}" == release || "${{ github.ref_name }}" == release-* ]]; then
             ENVIRONMENT=staging
             IMAGE_TAG="prod-${SEMVER}-${SHORT_SHA}"
             TARGET_FILE="k8/aws/helm/service-layer/values-staging.yaml"
