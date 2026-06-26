@@ -7,6 +7,7 @@ on:
       - draft-*
       - release-staging
       - release-*
+      - release
 
 permissions:
   packages: write
