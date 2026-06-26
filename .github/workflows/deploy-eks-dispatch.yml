@@ -1,24 +1,32 @@
-name: Build and Deploy to EKS
+name: EKS Deploy Dispatcher
 
 on:
-  push:
-    branches:
-      - main
-      - draft-*
-      - release-staging
-      - release-*
-      - release
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Deployment target"
+        required: true
+        type: choice
+        default: dev
+        options:
+          - dev
+          - staging
+      source_ref:
+        description: "Branch, tag, or SHA to build. Defaults to the workflow ref."
+        required: false
+        type: string
 
 permissions:
   packages: write
 
 jobs:
-  build-and-push-image:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 0
 
       - name: Set repository name to lowercase
@@ -34,29 +42,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Read semver from package.json and compute image tags
+      - name: Compute image tag
         run: |
           SEMVER=$(node -p "require('./package.json').version")
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
 
-          if [[ "${{ github.ref_name }}" == release-* ]]; then
+          if [ "${{ inputs.target }}" = "staging" ]; then
             ENVIRONMENT=staging
-            IMAGE_TAG="prod-${SEMVER}-${SHORT_SHA}"
+            IMAGE_TAG="prod-${SEMVER}-${SHORT_SHA}-r${{ github.run_id }}"
             TARGET_FILE="k8/aws/helm/service-layer/values-staging.yaml"
-            TAGS="ghcr.io/$REPO_LOWER:${IMAGE_TAG}"
           else
             ENVIRONMENT=dev
-            IMAGE_TAG="dev-${SEMVER}-${SHORT_SHA}"
+            IMAGE_TAG="dev-${SEMVER}-${SHORT_SHA}-r${{ github.run_id }}"
             TARGET_FILE="k8/aws/helm/service-layer/values.yaml"
-            TAGS="ghcr.io/$REPO_LOWER:${IMAGE_TAG}"
           fi
 
           echo "SEMVER=$SEMVER" >> $GITHUB_ENV
-          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
           echo "ENVIRONMENT=$ENVIRONMENT" >> $GITHUB_ENV
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-          echo -e "REPO_LOWER=$REPO_LOWER\nTAGS=$TAGS\nTARGET_FILE=$TARGET_FILE" >> $GITHUB_ENV
+          echo "TARGET_FILE=$TARGET_FILE" >> $GITHUB_ENV
+          echo "REPO_LOWER=$REPO_LOWER" >> $GITHUB_ENV
 
       - name: Set image metadata (OCI labels)
         id: metadata
@@ -69,14 +75,13 @@ jobs:
             org.opencontainers.image.source=${{ github.event.repository.html_url }}
             org.opencontainers.image.version=${{ env.SEMVER }}
 
-      - name: Build and push Docker image (with layer cache)
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./dockerfile
           push: true
-          tags: |
-            ${{ env.TAGS }}
+          tags: ghcr.io/${{ env.REPO_LOWER }}:${{ env.IMAGE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: ${{ steps.metadata.outputs.labels }}
@@ -129,7 +134,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "${{ env.TARGET_FILE }}"
-          git commit -m "ci: update automation-mock-playground-service image tag to ${{ env.IMAGE_TAG }} (${{ env.ENVIRONMENT }})"
+          git commit -m "ci(dispatch): update automation-mock-playground-service image tag to ${{ env.IMAGE_TAG }} (${{ env.ENVIRONMENT }})"
           for i in 1 2 3; do
             git pull --rebase origin main && git push && break
             sleep $((i * 5))
