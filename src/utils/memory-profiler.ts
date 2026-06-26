@@ -1,7 +1,7 @@
 // import v8 from 'v8';
 // import { mkdirSync } from 'fs';
 // import { join } from 'path';
-// import logger from '../observability/log';
+// import logger from './logger';
 // import promClient from 'prom-client';
 
 // // ── Prometheus gauges ──────────────────────────────────────────────────────────

@@ -5,10 +5,8 @@ import {
     ONDC_ERROR_CODES,
     OndcErrorCodeKey,
 } from '../constants/error-codes';
-import logger from '../observability/log';
+import logger from './logger';
 import { BecknContext } from '../types/ondc-types';
-import { snapshot } from '../observability/trace-context';
-import { lbl, mockAckTotal, mockNackTotal } from '../observability/metrics';
 
 const resUtilsLogger = logger;
 
@@ -95,12 +93,6 @@ export function sendError(
 }
 
 export function sendAck(res: Response, context: BecknContext) {
-    const t = snapshot();
-    mockAckTotal.inc({
-        action: lbl(t.action),
-        domain: lbl(t.domain),
-        version: lbl(t.version),
-    });
     return res.status(200).json({
         context: context,
         message: {
@@ -125,20 +117,6 @@ export function sendNack(
     }
 
     const errorMeta = ONDC_ERROR_CODES[errorCode];
-    const t = snapshot();
-    mockNackTotal.inc({
-        code: lbl(errorCode),
-        action: lbl(t.action),
-        domain: lbl(t.domain),
-        version: lbl(t.version),
-    });
-    resUtilsLogger.error('nack', {
-        event: 'nack',
-        component: 'http',
-        error_code: errorCode,
-        error_type: errorMeta?.type,
-        nack_message: message ?? errorMeta?.message,
-    });
     return res.status(200).json({
         context: context,
         message: {

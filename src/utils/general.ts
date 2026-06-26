@@ -1,4 +1,4 @@
-import logger from '../observability/log';
+import logger from './logger';
 
 export function isValidJson(
     value: unknown,

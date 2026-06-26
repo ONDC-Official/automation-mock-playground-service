@@ -1,19 +1,18 @@
 import { Request } from 'express';
-import logger from '../observability/log';
+import logger from './logger';
 import { ApiRequest } from '../routes/manualRoutes';
-import { getStore } from '../observability/trace-context';
+import { getTraceContext } from './trace-context';
 
 export function getLoggerMeta(req: Request) {
     // Layer the active trace context underneath the request-derived fields so
     // explicit callers still get the full id set (the wrapper injects it too,
     // but this keeps the helper's output self-contained).
-    const trace = getStore() ?? {};
+    const trace = getTraceContext();
     return {
         ...trace,
-        correlationId: req.correlationId ?? trace.correlation_id,
-        transactionId:
-            req.body?.context?.transaction_id ?? trace.transaction_id,
-        messageId: req.body?.context?.message_id ?? trace.message_id,
+        correlationId: req.correlationId ?? trace.correlationId,
+        transactionId: req.body?.context?.transaction_id ?? trace.transactionId,
+        messageId: req.body?.context?.message_id ?? trace.messageId,
     };
 }
 

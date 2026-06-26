@@ -1,11 +1,8 @@
 import axios from 'axios';
-import { obsAxios } from '../../observability/http-client';
 import { createApiServiceURL } from './api-service-request';
-import logger from '../../observability/log';
-import { set as setTrace } from '../../observability/trace-context';
+import logger from '../../utils/logger';
+import { setTraceContext } from '../../utils/trace-context';
 import { QueueJob } from '../../queue/IQueueService';
-import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
-import { resetStepToAvailable } from '../flows/flow-status-utils';
 export const API_SERVICE_FORM_REQUEST_JOB = 'API_SERVICE_FORMS_JOB';
 
 export type ApiServiceFormRequestJobParams = {
@@ -27,9 +24,9 @@ export type ApiServiceFormRequestJobResult = {
 
 export function createApiServiceFormRequestJobHandler() {
     return async (data: ApiServiceFormRequestJobParams) => {
-        setTrace({
-            transaction_id: data.transactionId,
-            action_id: data.formActionId,
+        setTraceContext({
+            transactionId: data.transactionId,
+            actionId: data.formActionId,
             domain: data.domain,
             version: data.version,
         });
@@ -55,30 +52,25 @@ export function createApiServiceFormRequestJobHandler() {
                 submissionId: data.submissionId,
                 error: data.error,
             };
-            const res = await obsAxios.post(url, body);
+            const res = await axios.post(url, body);
             return {
                 success: true,
                 statusCode: res.status,
                 responseBody: res.data,
             };
         } catch (error) {
-            logger.error(
-                'API service form request failed',
-                {
-                    event: 'error',
-                    component: 'job',
-                    job_name: API_SERVICE_FORM_REQUEST_JOB,
-                    domain: data.domain,
-                    version: data.version,
-                    statusCode: axios.isAxiosError(error)
-                        ? error.response?.status
-                        : undefined,
-                },
-                error
-            );
-            // Re-throw so the queue marks the job FAILED (firing on('failed') →
-            // flow reset + failure metric) instead of silently completing.
-            throw error;
+            logger.error('API service form request failed', { error });
+            if (!axios.isAxiosError(error)) {
+                return {
+                    success: false,
+                    message: 'Unknown error occurred',
+                };
+            }
+            return {
+                success: false,
+                statusCode: error.response?.status,
+                responseBody: error.response?.data,
+            };
         }
     };
 }
@@ -93,30 +85,13 @@ export function apiServiceFormRequestJobComplete(
     });
 }
 
-export function createApiServiceFormRequestJobFailed(
-    workbenchCache: WorkbenchCacheServiceType
-) {
-    return async (
-        job: QueueJob<ApiServiceFormRequestJobParams>,
-        _result?: unknown,
-        error?: Error
-    ): Promise<void> => {
-        logger.error(
-            'API service form request job failed',
-            {
-                event: 'error',
-                component: 'job',
-                job_name: API_SERVICE_FORM_REQUEST_JOB,
-                jobId: job?.id,
-                transactionId: job?.data?.transactionId,
-            },
-            error
-        );
-        if (job?.data?.transactionId && job?.data?.subscriberUrl) {
-            await resetStepToAvailable(workbenchCache, {
-                transactionId: job.data.transactionId,
-                subscriberUrl: job.data.subscriberUrl,
-            });
-        }
-    };
+export function apiServiceFormRequestJobFailed(
+    job: QueueJob<ApiServiceFormRequestJobParams>,
+    result: unknown,
+    error?: Error
+): void {
+    logger.error('API service form request job failed', {
+        jobId: job?.id,
+        error,
+    });
 }
