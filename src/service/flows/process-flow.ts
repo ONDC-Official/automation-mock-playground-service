@@ -297,6 +297,38 @@ async function dispatchTarget(
     const isExtra = target.isExtraStep === true;
     setTraceContext({ action: target.actionType, actionId: target.actionId });
 
+    // Idempotency guard for form steps. POST /forms/submit already proceeds the flow with the
+    // REAL submission_id (form-handlers.ts). The frontend dynamic-form handler then redundantly
+    // re-proceeds with a placeholder crypto.randomUUID submission_id (its own unresolved TODO),
+    // which previously overwrote the real submission via addFormSubmissionId and re-enqueued a
+    // bogus API_SERVICE_FORM_REQUEST_JOB, stranding the step at PROCESSING ("Form complete but
+    // failed to proceed"). If a real submission already exists for this step and the caller
+    // passed a DIFFERENT id, treat this as a redundant re-proceed and no-op. Must run before
+    // setFlowStatus below so a no-op does not leave the step stuck in WORKING. HTML_FORM steps
+    // pass the real id back (===), so they are unaffected.
+    if (FORM_TYPES.has(target.actionType) && !isExtra) {
+        const formKey = `${params.transactionId}_${target.actionId}`;
+        const freshSession = await workbenchCache
+            .NpSessionalCacheService()
+            .getSessionData(params.sessionId);
+        const storedSubmissionId =
+            freshSession?.formSubmissions?.[formKey]?.submission_id;
+        const providedSubmissionId = (
+            params.inputs as Record<string, unknown> | undefined
+        )?.submission_id as string | undefined;
+        if (
+            storedSubmissionId &&
+            providedSubmissionId &&
+            providedSubmissionId !== storedSubmissionId
+        ) {
+            logger.info(
+                'Skipping redundant dynamic-form proceed (submission_id mismatch); form already submitted',
+                { formKey, storedSubmissionId, providedSubmissionId }
+            );
+            return '';
+        }
+    }
+
     if (isExtra) {
         await workbenchCache
             .FlowStatusCacheService()

@@ -120,7 +120,15 @@ export const handleFormSubmitService = async (
                 },
             };
         }
-        const successHtml = getSuccessHtml(submissionID);
+        // Route dynamic-form completion through the api-service /callback (instead of just
+        // window.close() inside the form). The callback writes form_completed:{UI session}
+        // — resolved via redirection_url:{subscriberPath} — which is what the workbench modal
+        // polls for. The form session's subscriberUrl path matches the redirection_url key, so
+        // `${subscriberUrl}/callback` resolves to the correct UI session.
+        const callbackUrl = sessionData.subscriberUrl
+            ? `${sessionData.subscriberUrl}/callback`
+            : undefined;
+        const successHtml = getSuccessHtml(submissionID, callbackUrl);
         // proceed function
         return {
             dataType: 'html',
@@ -138,7 +146,7 @@ export const handleFormSubmitService = async (
     }
 };
 
-const getSuccessHtml = (submissionID: string) => `
+const getSuccessHtml = (submissionID: string, callbackUrl?: string) => `
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -360,9 +368,17 @@ const getSuccessHtml = (submissionID: string) => `
             }
           </style>
           <script>
-            let countdown = 5;
+            var callbackUrl = ${callbackUrl ? `'${callbackUrl}'` : 'null'};
+            function finish() {
+              // Hand off to the api-service /callback, which writes form_completed:{session}
+              // (so the workbench polling modal detects completion) and then 302-redirects.
+              // Fall back to window.close() if no callback URL is available.
+              if (callbackUrl) { window.location.replace(callbackUrl); }
+              else { window.close(); }
+            }
+            let countdown = ${callbackUrl ? 2 : 5};
             const countdownElement = document.getElementById('countdown');
-            
+
             const timer = setInterval(function() {
               countdown--;
               if (countdownElement) {
@@ -370,7 +386,7 @@ const getSuccessHtml = (submissionID: string) => `
               }
               if (countdown <= 0) {
                 clearInterval(timer);
-                window.close();
+                finish();
               }
             }, 1000);
           </script>
@@ -385,9 +401,9 @@ const getSuccessHtml = (submissionID: string) => `
               <span class="submission-label">Submission ID</span>
               ${submissionID}
             </div>
-            <button onclick="window.close()">Close Window</button>
+            <button onclick="finish()">Continue</button>
             <p class="auto-close-text">
-              Auto-closing in <span class="countdown" id="countdown">5</span> seconds
+              Continuing in <span class="countdown" id="countdown">${callbackUrl ? 2 : 5}</span> seconds
             </p>
           </div>
         </body>

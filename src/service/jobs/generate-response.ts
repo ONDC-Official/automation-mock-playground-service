@@ -126,6 +126,77 @@ export function createGeneratePayloadJobHandler(
                 txnMockData.bppUri = flowContext.subscriberUrl;
             }
 
+            // Echo the request's message_id for solicited callbacks (on_X). MockRunner derives
+            // the echoed id from sessionData.latestMessage_id, but that is the MOST-RECENT
+            // message — it gets clobbered by interleaving unsolicited on_status, and in w2w the
+            // request is recorded on the counterparty subscriber_url partition. Resolve the
+            // SPECIFIC predecessor's message_id from the full per-action transaction history
+            // (across both subscriber_url partitions) and pin it as latestMessage_id so
+            // on_confirm/on_search/on_init echo their exact request regardless of interleaving
+            // or which w2w side generated the callback. The request step is the one whose `pair`
+            // points at this callback; its `type` is the predecessor protocol action.
+            try {
+                const requestStep = flowContext.flow.sequence.find(
+                    (s) => s.pair === actionMeta.actionId
+                );
+                const predecessorAction = requestStep?.type;
+                if (predecessorAction) {
+                    const partitionUrls = new Set<string>([
+                        flowContext.subscriberUrl,
+                    ]);
+                    if (flowContext.subscriberUrl.includes('/buyer')) {
+                        partitionUrls.add(
+                            flowContext.subscriberUrl.replace('/buyer', '/seller')
+                        );
+                    } else if (flowContext.subscriberUrl.includes('/seller')) {
+                        partitionUrls.add(
+                            flowContext.subscriberUrl.replace('/seller', '/buyer')
+                        );
+                    }
+                    let predecessorMessageId: string | undefined;
+                    let predecessorTs = '';
+                    for (const url of partitionUrls) {
+                        try {
+                            const txnData = await workbenchCache
+                                .TransactionalCacheService()
+                                .getTransactionData(
+                                    flowContext.transactionId,
+                                    url
+                                );
+                            for (const item of txnData.apiList ?? []) {
+                                if (
+                                    item.entryType === 'API' &&
+                                    item.action === predecessorAction &&
+                                    (item.timestamp ?? '') >= predecessorTs
+                                ) {
+                                    predecessorMessageId = item.messageId;
+                                    predecessorTs = item.timestamp ?? '';
+                                }
+                            }
+                        } catch {
+                            // partition may not exist for this subscriber_url; ignore
+                        }
+                    }
+                    if (predecessorMessageId) {
+                        txnMockData.latestMessage_id = [predecessorMessageId];
+                        logger.debug(
+                            'Pinned predecessor message_id for callback echo',
+                            {
+                                ...logMeta,
+                                predecessorAction,
+                                predecessorMessageId,
+                            }
+                        );
+                    }
+                }
+            } catch (err) {
+                logger.warning(
+                    'Predecessor message_id resolution failed; falling back to default generation',
+                    logMeta,
+                    err as Error
+                );
+            }
+
             const finvuUrl = process.env.FINVU_AA_SERVICE_URL;
             if (finvuUrl) {
                 txnMockData.finvuUrl = finvuUrl;
