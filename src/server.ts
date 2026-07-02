@@ -1,6 +1,5 @@
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
-import { healthMonitor } from './utils/health-monitor';
 import logger from './utils/logger';
 import { sendError, sendSuccess } from './utils/res-utils';
 // import promClient from 'prom-client';
@@ -47,21 +46,8 @@ const createServer = (): Application => {
     // });
 
     // Health Check - Before JSON validation middleware
-    app.get('/health', async (req: Request, res: Response) => {
-        try {
-            const healthStatus = await healthMonitor.getHealthStatus();
-            return sendSuccess(res, healthStatus);
-        } catch (error) {
-            return sendError(
-                res,
-                'HEALTH_CHECK_FAILED',
-                'Health check failed',
-                {
-                    error:
-                        error instanceof Error ? error.message : String(error),
-                }
-            );
-        }
+    app.get('/health', (_req: Request, res: Response) => {
+        return sendSuccess(res, { status: 'ok' });
     });
 
     app.use(express.json({ limit: '3mb' }));
