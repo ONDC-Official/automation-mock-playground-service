@@ -4,6 +4,7 @@ import { MappedStep } from '../../types/mapped-flow-types';
 import { MockStatusCode } from '../../types/mock-service-types';
 import { SequenceStep } from '../../types/flow-types';
 import logger from '../../utils/logger';
+import { isFormStepType } from '../../utils/flow-utils';
 import { setTraceContext } from '../../utils/trace-context';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import {
@@ -24,7 +25,6 @@ export type ActionUponFlowResponse = {
     inputs?: unknown;
 };
 
-const FORM_TYPES = new Set(['HTML_FORM', 'DYNAMIC_FORM', 'HTML_FORM_MULTI']);
 const DISPATCH_STATUSES = new Set<MappedStep['status']>([
     'RESPONDING',
     'INPUT-REQUIRED',
@@ -151,7 +151,7 @@ export async function actOnFlowService(
                 message: `trigger_extra: step "${step.key}" is owned by ${step.owner}, not ${params.transactionData.subscriberType}`,
             };
         }
-       
+
         const triggerStatus = extraFlowStatuses.get(step.key) ?? 'AVAILABLE';
         if (triggerStatus !== 'AVAILABLE') {
             return {
@@ -316,7 +316,7 @@ async function dispatchTarget(
             );
     }
 
-    if (FORM_TYPES.has(target.actionType)) {
+    if (isFormStepType(target.actionType)) {
         // Forms are sequence-only by validation; this path never fires for extras.
         if (
             !params.inputs ||

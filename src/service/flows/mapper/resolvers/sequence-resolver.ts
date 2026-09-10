@@ -31,7 +31,10 @@ export const sequenceResolver: Resolver = (ctx, state) => {
         return { consumed: false };
     }
 
-    if (expectedStep.type === apiData.formType) {
+    if (
+        expectedStep.type === apiData.formType ||
+        expectedStep.type?.toUpperCase() === apiData.formType?.toUpperCase()
+    ) {
         state.mappedFlow.sequence.push({
             status: 'COMPLETE',
             actionId: expectedStep.key,

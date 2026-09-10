@@ -28,6 +28,7 @@ import {
 import { resolveFormActions, validateFormHtml } from '../utils/form-utils';
 import axios from 'axios';
 import MockRunner from '@ondc/automation-mock-runner';
+import { isHtmlFormStepType } from '../utils/flow-utils';
 
 export function incomingRequestControllers(
     workbenchCache: WorkbenchCacheServiceType,
@@ -142,7 +143,7 @@ async function findMatchingStep(
         if (
             !data ||
             data.entryType === 'FORM' ||
-            step.actionType === 'HTML_FORM'
+            isHtmlFormStepType(step.actionType)
         ) {
             continue;
         }
@@ -273,10 +274,7 @@ async function processMatchingRequest(
         const nextStepIndex = index + 1;
         if (!step.isExtraStep && nextStepIndex < sequence.length) {
             const nextStep = sequence[nextStepIndex];
-            if (
-                nextStep.actionType === 'HTML_FORM' ||
-                nextStep.actionType === 'HTML_FORM_MULTI'
-            ) {
+            if (isHtmlFormStepType(nextStep.actionType)) {
                 logger.info(
                     `Next step ${nextStep.actionId} is ${nextStep.actionType}, processing form`,
                     getLoggerData(req)

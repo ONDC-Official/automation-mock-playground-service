@@ -1,6 +1,7 @@
 import { FormConfigType, SequenceStep } from '../../../types/flow-types';
 import { MappedStep } from '../../../types/mapped-flow-types';
 import { MockStatusCode } from '../../../types/mock-service-types';
+import { isFormStepType } from '../../../utils/flow-utils';
 
 /**
  * Synthetic input surfaced on a manual step once it becomes INPUT-REQUIRED.
@@ -61,7 +62,7 @@ export function buildPendingStep(args: BuildPendingStepArgs): MappedStep[] {
         return [{ ...base, status: 'WAITING' }];
     }
 
-    if (step.type === 'HTML_FORM' || step.type === 'DYNAMIC_FORM') {
+    if (isFormStepType(step.type)) {
         if (subscriberType === step.owner) {
             return [
                 {

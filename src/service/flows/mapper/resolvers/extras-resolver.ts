@@ -1,9 +1,8 @@
 import { SequenceStep } from '../../../../types/flow-types';
 import { MappedStep } from '../../../../types/mapped-flow-types';
 import { buildPendingStep } from '../pending-step';
+import { isFormStepType } from '../../../../utils/flow-utils';
 import { Resolver } from './resolver-types';
-
-const FORM_TYPES = new Set(['HTML_FORM', 'DYNAMIC_FORM', 'HTML_FORM_MULTI']);
 
 export interface ExtrasIndex {
     byType: Map<string, SequenceStep>;
@@ -20,7 +19,7 @@ export function createExtrasIndex(extraSequence: SequenceStep[]): ExtrasIndex {
     const byKey = new Map<string, SequenceStep>();
 
     for (const step of extraSequence) {
-        if (FORM_TYPES.has(step.type)) {
+        if (isFormStepType(step.type)) {
             throw new Error(
                 `extraSequence entry "${step.key}" has form-type "${step.type}"; forms must live only in strict sequence`
             );

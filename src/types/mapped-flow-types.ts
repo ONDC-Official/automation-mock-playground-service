@@ -14,7 +14,12 @@ export type ReducedApiData = {
 
 export type ReduceFormData = {
     entryType: 'FORM';
-    formType: 'HTML_FORM' | 'RES_FORM' | 'DYNAMIC_FORM' | 'HTML_FORM_MULTI';
+    formType:
+        | 'HTML_FORM'
+        | 'RES_FORM'
+        | 'DYNAMIC_FORM'
+        | 'HTML_FORM_MULTI'
+        | 'html_form_multi';
     formId: string;
     submissionId?: string;
     timestamp: string;

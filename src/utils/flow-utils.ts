@@ -3,6 +3,25 @@ import { Flow } from '../types/flow-types';
 import { MockSessionCache } from '../types/mock-service-types';
 import { BecknContext } from '../types/ondc-types';
 
+/** Form step types, matched case-insensitively: the mock-runner's conversion emits
+ *  uppercase types for its known apis (HTML_FORM, DYNAMIC_FORM) but passes unknown
+ *  apis (html_form_multi) through lowercase. */
+const FORM_STEP_TYPES = new Set([
+    'HTML_FORM',
+    'DYNAMIC_FORM',
+    'HTML_FORM_MULTI',
+]);
+export function isFormStepType(type?: string | null): boolean {
+    return !!type && FORM_STEP_TYPES.has(type.toUpperCase());
+}
+export function isHtmlFormStepType(type?: string | null): boolean {
+    return (
+        !!type &&
+        (type.toUpperCase() === 'HTML_FORM' ||
+            type.toUpperCase() === 'HTML_FORM_MULTI')
+    );
+}
+
 export function fetchFlow(sessionData: SessionCache, flowId: string): Flow {
     if (!sessionData || !sessionData.flowConfigs) {
         throw new Error(
@@ -39,12 +58,7 @@ export function getReferenceData(
     flow: Flow
 ): Record<string, unknown> {
     const referenceData: Record<string, unknown> = {};
-    const formSteps = flow.sequence.filter(
-        step =>
-            step.type === 'DYNAMIC_FORM' ||
-            step.type === 'HTML_FORM' ||
-            step.type === 'HTML_FORM_MULTI'
-    );
+    const formSteps = flow.sequence.filter(step => isFormStepType(step.type));
     formSteps.forEach(step => {
         const stepKey = step.key;
         if (Array.isArray(sessionData[stepKey])) {

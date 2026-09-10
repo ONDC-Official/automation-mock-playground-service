@@ -17,6 +17,7 @@ export const FormApiTypeSchema = z.object({
         'RES_FORM',
         'DYNAMIC_FORM',
         'HTML_FORM_MULTI',
+        'html_form_multi',
     ]),
     formId: z.string(),
     submissionId: z.string().optional(),
