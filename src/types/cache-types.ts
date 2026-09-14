@@ -12,7 +12,13 @@ export const ApiDataSchema = z.object({
 
 export const FormApiTypeSchema = z.object({
     entryType: z.literal('FORM'),
-    formType: z.enum(['HTML_FORM', 'RES_FORM', 'DYNAMIC_FORM']),
+    formType: z.enum([
+        'HTML_FORM',
+        'RES_FORM',
+        'DYNAMIC_FORM',
+        'HTML_FORM_MULTI',
+        'html_form_multi',
+    ]),
     formId: z.string(),
     submissionId: z.string().optional(),
     timestamp: z.string(),

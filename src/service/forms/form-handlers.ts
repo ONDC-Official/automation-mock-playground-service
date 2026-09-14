@@ -17,7 +17,11 @@ export const handleGetFormService = async (
     domain: string,
     preferHtml: boolean
 ) => {
-    if (stepConfig.api !== 'dynamic_form' && stepConfig.api != 'html_form') {
+    if (
+        stepConfig.api !== 'dynamic_form' &&
+        stepConfig.api != 'html_form' &&
+        stepConfig.api != 'html_form_multi'
+    ) {
         throw new Error('Invalid API type for form rendering');
     }
     if (stepConfig.api === 'dynamic_form') {
@@ -70,12 +74,20 @@ export const handleFormSubmitService = async (
     transactionData: TransactionCache,
     queueService: IQueueService
 ) => {
-    if (stepConfig.api !== 'dynamic_form' && stepConfig.api != 'html_form') {
+    if (
+        stepConfig.api !== 'dynamic_form' &&
+        stepConfig.api != 'html_form' &&
+        stepConfig.api != 'html_form_multi'
+    ) {
         throw new Error('Invalid API type for form rendering');
     }
     const submissionID = randomUUID();
     formData.form_submission_id = submissionID;
-    if (stepConfig.api === 'dynamic_form' || stepConfig.api === 'html_form') {
+    if (
+        stepConfig.api === 'dynamic_form' ||
+        stepConfig.api === 'html_form' ||
+        stepConfig.api === 'html_form_multi'
+    ) {
         // proceed function
         await workbenchCache
             .NpSessionalCacheService()
@@ -112,7 +124,10 @@ export const handleFormSubmitService = async (
             workbenchCache,
             queueService
         );
-        if (stepConfig.api === 'html_form') {
+        if (
+            stepConfig.api === 'html_form' ||
+            stepConfig.api === 'html_form_multi'
+        ) {
             return {
                 dataType: 'json',
                 data: {
