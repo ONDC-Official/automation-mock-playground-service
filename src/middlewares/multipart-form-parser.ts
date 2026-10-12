@@ -6,8 +6,8 @@ const MAX_BODY_SIZE = 3 * 1024 * 1024; // matches express.json limit in server.t
 const parseMultipart = (
     body: Buffer,
     boundary: string
-): Record<string, string> => {
-    const fields: Record<string, string> = {};
+): Record<string, string | string[]> => {
+    const fields: Record<string, string | string[]> = {};
     const boundaryBuffer = Buffer.from(`--${boundary}`);
 
     let start = body.indexOf(boundaryBuffer);
@@ -31,7 +31,22 @@ const parseMultipart = (
             const filenameMatch = rawHeaders.match(/filename="([^"]*)"/);
 
             if (nameMatch && !filenameMatch) {
-                fields[nameMatch[1]] = content.toString('utf-8');
+                // text/html-multi forms (e.g. family member details) submit one <input>
+                // per member, all sharing the same field name — the HTML/multipart
+                // convention for a repeated field. Collecting them into an array here
+                // (rather than overwriting) is what lets downstream code see
+                // { dob: ["17/11/2021", "19/12/2003"], panValue: [...] } instead of
+                // silently losing every member but the last.
+                const name = nameMatch[1];
+                const value = content.toString('utf-8');
+                const existing = fields[name];
+                if (existing === undefined) {
+                    fields[name] = value;
+                } else if (Array.isArray(existing)) {
+                    existing.push(value);
+                } else {
+                    fields[name] = [existing, value];
+                }
             } else if (nameMatch && filenameMatch) {
                 logger.warning(
                     'multipartFormParser: ignoring file field, only text fields are supported',

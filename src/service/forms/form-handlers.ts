@@ -7,7 +7,135 @@ import { randomUUID } from 'crypto';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import { actOnFlowService } from '../flows/process-flow';
 import { IQueueService } from '../../queue/IQueueService';
-import { getBeautifulForm } from '../../utils/form-utils';
+import {
+    getBeautifulForm,
+    extractFieldConstraints,
+    FieldConstraint,
+} from '../../utils/form-utils';
+import { httpValidationError } from '../../errors/custom-errors';
+
+function describeFormatViolation(
+    field: FieldConstraint,
+    value: unknown
+): string | undefined {
+    if (typeof value !== 'string') {
+        return 'must be a string value';
+    }
+    if (field.pattern) {
+        try {
+            // HTML pattern semantics: the whole value must match.
+            if (!new RegExp(`^(?:${field.pattern})$`).test(value)) {
+                return `does not match the seller's declared pattern "${field.pattern}"`;
+            }
+        } catch {
+            // An invalid pattern in the seller's own HTML is a form-authoring problem,
+            // not something the buyer's submission can be faulted for.
+        }
+    }
+    if (field.minLength !== undefined && value.length < field.minLength) {
+        return `must be at least ${field.minLength} characters`;
+    }
+    if (field.maxLength !== undefined && value.length > field.maxLength) {
+        return `must be at most ${field.maxLength} characters`;
+    }
+    return undefined;
+}
+
+/**
+ * Validates an html_form_multi submission's array shape against the seller's own form HTML —
+ * no business field name (e.g. "dob", "panValue") is hardcoded; every non-hidden field the form
+ * declares is treated the same way, generically:
+ *  - the submitted body itself must be a plain JSON/form object (key → value or key → array of
+ *    values) — not null, not an array, not a bare string/number. The buyer app's construct is
+ *    { "dob": ["17/11/2021", "19/12/2003"], "panValue": ["RKPUS3413T", "SKPUS3413L"] }: a flat
+ *    object whose values are arrays (or, for a single member, bare scalars — see below). Anything
+ *    that isn't shaped like that at all is rejected here, before any per-field check runs, so a
+ *    malformed body fails loudly instead of either crashing deeper in or silently skipping
+ *    validation because indexing into it just returns undefined for every field.
+ *  - every such field must actually be submitted in key:array-of-values form. multipart/form-data
+ *    can't tell "one array element" apart from "a plain scalar" when a field is only submitted
+ *    once (a single-member family, say), so a bare scalar is normalized into a single-element
+ *    array here rather than rejected outright — the construct is still array-of-values, just
+ *    length 1.
+ *  - all of those arrays must agree on length — positional correlation: field_a[i] and
+ *    field_b[i] must belong to the same member, so a buyer that only repeated one of several
+ *    fields is a contract violation, not a quirk to tolerate.
+ *  - each value must match whatever `pattern`/`minlength`/`maxlength` the seller's HTML declared
+ *    for that field, at every index.
+ * Throws httpValidationError (→ 400) on the first category of violation found.
+ */
+export function validateMultiFormSubmission(
+    formData: unknown,
+    formHtml: string
+): void {
+    if (
+        typeof formData !== 'object' ||
+        formData === null ||
+        Array.isArray(formData)
+    ) {
+        throw new httpValidationError(
+            'Malformed multi-submission: expected a JSON object mapping each field name to its value(s) (e.g. { "dob": ["17/11/2021", "19/12/2003"], "panValue": ["RKPUS3413T", "SKPUS3413L"] })',
+            [
+                `received ${
+                    formData === null
+                        ? 'null'
+                        : Array.isArray(formData)
+                          ? 'an array'
+                          : typeof formData
+                } instead of an object`,
+            ]
+        );
+    }
+
+    const data = formData as Record<string, unknown>;
+
+    const fields = extractFieldConstraints(formHtml).filter(f => !f.hidden);
+    if (fields.length === 0) return;
+
+    // Normalize every declared field to an array, so a single-member submission (which
+    // multipart collapses to a bare scalar) still participates in the length check below
+    // instead of silently skipping it. Fields the buyer didn't submit at all are left out —
+    // required-ness is the buyer UI's concern, not this shape check's.
+    const arrayFields: [string, unknown[]][] = fields
+        .map((field): [string, unknown[]] | undefined => {
+            const value = data[field.name];
+            if (value === undefined) return undefined;
+            return [field.name, Array.isArray(value) ? value : [value]];
+        })
+        .filter((entry): entry is [string, unknown[]] => entry !== undefined);
+    if (arrayFields.length === 0) return;
+
+    const lengths = new Set(arrayFields.map(([, values]) => values.length));
+    if (lengths.size > 1) {
+        throw new httpValidationError(
+            'Malformed multi-submission: every field must submit the same number of entries (as an array of values, one per member)',
+            arrayFields.map(
+                ([name, values]) => `${name} has ${values.length} entries`
+            )
+        );
+    }
+
+    const byName = new Map(fields.map(f => [f.name, f]));
+    const details: string[] = [];
+    for (const [name, values] of arrayFields) {
+        const field = byName.get(name);
+        if (!field) continue;
+        values.forEach((value, index) => {
+            const problem = describeFormatViolation(field, value);
+            if (problem) {
+                details.push(
+                    `${name}[${index}] = "${String(value)}" ${problem}`
+                );
+            }
+        });
+    }
+    if (details.length > 0) {
+        throw new httpValidationError(
+            'Malformed multi-submission field value(s)',
+            details
+        );
+    }
+}
 
 export const handleGetFormService = async (
     stepConfig: MockRunnerConfig['steps'][0],
@@ -80,6 +208,12 @@ export const handleFormSubmitService = async (
         stepConfig.api != 'html_form_multi'
     ) {
         throw new Error('Invalid API type for form rendering');
+    }
+    if (stepConfig.api === 'html_form_multi') {
+        const formHtml = MockRunner.decodeBase64(
+            stepConfig.mock.formHtml ?? ''
+        );
+        validateMultiFormSubmission(formData, formHtml);
     }
     const submissionID = randomUUID();
     formData.form_submission_id = submissionID;
