@@ -52,6 +52,62 @@ type FieldInfo = {
     hidden: boolean;
 };
 
+export type FieldConstraint = {
+    name: string;
+    hidden: boolean;
+    required: boolean;
+    pattern?: string;
+    minLength?: number;
+    maxLength?: number;
+};
+
+/**
+ * Reads whatever `pattern`/`required`/`minlength`/`maxlength` the form's own HTML declares for
+ * each named field. Used to validate submitted values against the seller's own declared
+ * constraints without this service having to know or hardcode any business field name
+ * (e.g. "dob", "panValue") itself — the form HTML is the single source of truth for its fields.
+ * Radio/checkbox groups share a name across multiple <input>s; only the first occurrence's
+ * constraints are kept for such a name.
+ */
+export function extractFieldConstraints(html: string): FieldConstraint[] {
+    const $ = cheerio.load(html);
+    const $form = $('form').first();
+    const fields: FieldConstraint[] = [];
+    const seen = new Set<string>();
+
+    $form.find('input, textarea, select').each((_, element) => {
+        const $el = $(element);
+        const name = $el.attr('name') || '';
+        if (!name || seen.has(name)) return;
+        seen.add(name);
+
+        const tag = $el.prop('tagName')?.toLowerCase() || '';
+        const type = (
+            tag === 'select'
+                ? 'select'
+                : tag === 'textarea'
+                  ? 'textarea'
+                  : $el.attr('type') || 'text'
+        ).toLowerCase();
+
+        const minLengthAttr = $el.attr('minlength');
+        const maxLengthAttr = $el.attr('maxlength');
+
+        fields.push({
+            name,
+            hidden: type === 'hidden',
+            required: $el.attr('required') !== undefined,
+            pattern: $el.attr('pattern') || undefined,
+            minLength:
+                minLengthAttr !== undefined ? Number(minLengthAttr) : undefined,
+            maxLength:
+                maxLengthAttr !== undefined ? Number(maxLengthAttr) : undefined,
+        });
+    });
+
+    return fields;
+}
+
 type ValidationResult = {
     ok: boolean;
     errors: string[];

@@ -1,7 +1,7 @@
 # ============================================
 # Stage 1: Builder
 # ============================================
-FROM node:22-alpine AS builder
+FROM node:22.23.4-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -27,7 +27,7 @@ RUN npm prune --production
 # ============================================
 # Stage 2: Production
 # ============================================
-FROM node:22-alpine
+FROM node:22.23.4-alpine
 
 # Install dumb-init for proper signal handling
 RUN apk add --no-cache dumb-init
