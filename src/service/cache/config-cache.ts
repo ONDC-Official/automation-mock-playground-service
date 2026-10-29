@@ -6,6 +6,8 @@ import {
 } from '../../types/mock-runner-types';
 import { fetchMockRunnerConfigFromService } from '../../utils/runner-utils';
 import logger from '../../utils/logger';
+import { isFdDomain } from '../../fd/constants';
+import { fdWorkbenchSubscriberId, fdWorkbenchUris } from '../../fd/fd-config';
 const resolveApiServiceUrls = () => {
     let url =
         process.env.API_SERVICE_URL ||
@@ -207,8 +209,20 @@ export const newMockRunnerConfigCache = (
         const { url: apiServiceUrl, ownerId } = resolveApiServiceUrls();
         config.transaction_data.bap_id = config.transaction_data.bpp_id =
             ownerId;
-        config.transaction_data.bap_uri = `${apiServiceUrl}/${config.meta.domain}/${config.meta.version}/buyer`;
-        config.transaction_data.bpp_uri = `${apiServiceUrl}/${config.meta.domain}/${config.meta.version}/seller`;
+        if (isFdDomain(config.meta.domain)) {
+            // FD's workbench modules are investor-app/ and issuer/, not buyer/ and seller/.
+            const fdUris = fdWorkbenchUris(
+                config.meta.domain,
+                config.meta.version
+            );
+            config.transaction_data.bap_id = config.transaction_data.bpp_id =
+                fdWorkbenchSubscriberId();
+            config.transaction_data.bap_uri = fdUris.bapUri;
+            config.transaction_data.bpp_uri = fdUris.bppUri;
+        } else {
+            config.transaction_data.bap_uri = `${apiServiceUrl}/${config.meta.domain}/${config.meta.version}/buyer`;
+            config.transaction_data.bpp_uri = `${apiServiceUrl}/${config.meta.domain}/${config.meta.version}/seller`;
+        }
         logger.info('getMockRunnerConfig: done', {
             domain,
             version,
