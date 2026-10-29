@@ -1,12 +1,16 @@
-import { NextFunction, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { ApiRequest } from '../routes/manualRoutes';
 import { IQueueService } from '../queue/IQueueService';
 import { MockRunnerConfigCache } from '../service/cache/config-cache';
 import { WorkbenchCacheServiceType } from '../service/cache/workbench-cache';
-import { normalizeError, OndcProtocolError } from '../errors/custom-errors';
+import {
+    httpValidationError,
+    normalizeError,
+    OndcProtocolError,
+} from '../errors/custom-errors';
 import { logError } from '../utils/req-utils';
 import logger from '../utils/logger';
-import { sendAck, sendRawBody } from '../utils/res-utils';
+import { sendAck, sendRawBody, sendSuccess } from '../utils/res-utils';
 import { FD_HEADERS, isFdDomain } from '../fd/constants';
 import { actionOf, inboundFromRequest } from '../fd/context';
 import { getFdRoute } from '../fd/engine';
@@ -16,6 +20,7 @@ import {
     observeIncomingFd,
 } from '../fd/incoming';
 import { scheduleFdAdvance } from '../fd/advance';
+import { fdReplayBodySchema, replayFdCallback } from '../fd/replay';
 
 /** A SYNC answer slower than this is logged: the local target is P95 < 300 ms. */
 const SYNC_LATENCY_BUDGET_MS = 300;
@@ -114,6 +119,32 @@ export function fdControllers(
                         )
                     )
                 );
+            }
+        },
+
+        /** `POST /fd/replay` (M2-DESIGN §6): re-send the callback sent for a request. */
+        fdReplay: async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const parsed = fdReplayBodySchema.safeParse(req.body);
+                if (!parsed.success) {
+                    next(
+                        new httpValidationError(
+                            'Invalid FD replay request',
+                            parsed.error.issues.map(
+                                i => `${i.path.join('.')}: ${i.message}`
+                            )
+                        )
+                    );
+                    return;
+                }
+                const result = await replayFdCallback(parsed.data, {
+                    workbenchCache,
+                    queue,
+                });
+                sendSuccess(res, result, true);
+            } catch (error) {
+                logError(req, 'FD replay failed', error);
+                next(error);
             }
         },
     };
