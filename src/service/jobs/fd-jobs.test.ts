@@ -171,7 +171,10 @@ describe('FD GENERATE job: draft → script → sent', () => {
             pathParams: { applicationId: 'APP-1' },
             answering: 'm-req-1',
         });
-        expect(result.fd).toEqual({ pathParams: { applicationId: 'APP-1' } });
+        expect(result.fd).toEqual({
+            pathParams: { applicationId: 'APP-1' },
+            actionId: 'on_application_create',
+        });
 
         // The engine's draft is not persisted into the session.
         const session = await workbenchCache
@@ -267,6 +270,7 @@ describe('FD GENERATE job: draft → script → sent', () => {
         })) as GenerateMockPayloadJobResult;
         expect(result.fd).toEqual({
             pathParams: {},
+            actionId: 'quote_request',
             syncAnswer: {
                 key: expect.objectContaining({
                     transactionId: TXN_ID,
@@ -558,6 +562,7 @@ describe('M6 scenarios in the GENERATE job', () => {
         );
         expect(result.fd).toEqual({
             pathParams: {},
+            actionId: 'nominee_register_2',
             resend: true,
             rawBody: original,
         });
@@ -569,7 +574,11 @@ describe('M6 scenarios in the GENERATE job', () => {
             { deliveries: 5 },
             { context: { message_id: 'm-1' } }
         );
-        expect(result.fd).toEqual({ pathParams: {}, deliveries: 5 });
+        expect(result.fd).toEqual({
+            pathParams: {},
+            actionId: 'nominee_register_2',
+            deliveries: 5,
+        });
     });
 
     it('userInputs: the scenario’s inputs reach the draft, under the step’s own', async () => {

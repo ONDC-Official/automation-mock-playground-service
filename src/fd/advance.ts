@@ -16,6 +16,7 @@
  */
 import { IQueueService } from '../queue/IQueueService';
 import { WorkbenchCacheServiceType } from '../service/cache/workbench-cache';
+import { getFlowCompleteStatus } from '../service/flows/flow-mapper';
 import { actOnFlowService } from '../service/flows/process-flow';
 import { FlowContext } from '../types/process-flow-types';
 import { fetchFlow } from '../utils/flow-utils';
@@ -26,6 +27,17 @@ export interface FdAdvanceTarget {
     subscriberUrl: string;
     /** The SYNC request's `context.message_id`: the recorder keys the entry by it. */
     messageId: string;
+    /**
+     * Wait for at least this many history entries with `messageId` (default 1). A re-send of
+     * a message already recorded waits for its own entry, not the original's.
+     */
+    minEntries?: number;
+    /**
+     * The flow step whose send this follows. If, once recorded, that step is still the next
+     * one pending, the send did not complete it: the flow is not dispatched again (that would
+     * re-send it in a loop).
+     */
+    sentActionId?: string;
 }
 
 export interface FdAdvanceOptions {
@@ -88,10 +100,10 @@ export async function advanceAfterSyncExchange(
                 target.transactionId,
                 target.subscriberUrl
             );
-            const recorded = txn.apiList.some(
+            const recorded = txn.apiList.filter(
                 e => e.entryType === 'API' && e.messageId === target.messageId
-            );
-            if (recorded) break;
+            ).length;
+            if (recorded >= (target.minEntries ?? 1)) break;
         } catch (e) {
             logger.debug('FD advance: transaction not readable yet', {
                 ...meta,
@@ -113,6 +125,16 @@ export async function advanceAfterSyncExchange(
         target.transactionId,
         target.subscriberUrl
     );
+    if (
+        target.sentActionId &&
+        (await stillPending(deps, flowContext, target))
+    ) {
+        logger.error(
+            'FD advance: the step just sent is still pending once recorded; not dispatching it again',
+            { ...meta }
+        );
+        return false;
+    }
     const result = await actOnFlowService(
         flowContext,
         deps.workbenchCache,
@@ -123,6 +145,36 @@ export async function advanceAfterSyncExchange(
         result,
     });
     return true;
+}
+
+/** True when the step the send was for is still the next step of the sequence. */
+async function stillPending(
+    deps: { workbenchCache: WorkbenchCacheServiceType },
+    flowContext: FlowContext,
+    target: FdAdvanceTarget
+): Promise<boolean> {
+    const [flowStatus, sessionData] = await Promise.all([
+        deps.workbenchCache
+            .FlowStatusCacheService()
+            .getFlowStatus(target.transactionId, target.subscriberUrl, {}),
+        deps.workbenchCache
+            .TxnBusinessCacheService()
+            .getMockSessionData(
+                target.transactionId,
+                target.subscriberUrl,
+                flowContext.sessionId
+            ),
+    ]);
+    const map = getFlowCompleteStatus(
+        flowContext.transactionData,
+        flowContext.flow,
+        flowStatus.status,
+        sessionData,
+        undefined,
+        flowContext.domain
+    );
+    const next = map.sequence.find(s => s.status !== 'COMPLETE');
+    return next?.actionId === target.sentActionId;
 }
 
 /** Fire-and-forget form: never throws, logs failures. */

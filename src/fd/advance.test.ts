@@ -68,4 +68,73 @@ describe('advanceAfterSyncExchange', () => {
         ).resolves.toBe(false);
         expect(mockedAct).not.toHaveBeenCalled();
     });
+
+    const entry = (action: string, messageId: string, t: string) => ({
+        entryType: 'API' as const,
+        action,
+        payloadId: `${action}-${t}`,
+        messageId,
+        response: {
+            context: { message_id: messageId },
+            message: { ack: { status: 'ACK' } },
+        },
+        timestamp: t,
+    });
+    const txnWith = (apiList: object[]) => ({
+        sessionId: 'session-fd-1',
+        flowId: FLOW_ID,
+        latestAction: '',
+        latestTimestamp: '',
+        subscriberType: 'BAP',
+        messageIds: [],
+        apiList,
+    });
+
+    it('a re-send waits for its own entry, not the original’s', async () => {
+        const { cache0, workbenchCache } = await seedFd('BAP');
+        const original = entry(
+            'quote_request',
+            'm-req-1',
+            '2026-10-29T10:00:00.000Z'
+        );
+        await cache0.set(
+            `${TXN_ID}::${NP_URL}`,
+            txnWith([original]),
+            {} as never
+        );
+        const pending = advanceAfterSyncExchange(
+            { workbenchCache, queue },
+            { ...target, minEntries: 2 },
+            fast
+        );
+        await new Promise(r => setTimeout(r, 30));
+        expect(mockedAct).not.toHaveBeenCalled();
+        await cache0.set(
+            `${TXN_ID}::${NP_URL}`,
+            txnWith([original, { ...original, payloadId: 'p2' }]),
+            {} as never
+        );
+        await expect(pending).resolves.toBe(true);
+        expect(mockedAct).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not dispatch again a step the send did not complete (no re-send loop)', async () => {
+        const { cache0, workbenchCache } = await seedFd('BAP');
+        // quote_request is recorded, but the flow's next step is still the one just "sent".
+        await cache0.set(
+            `${TXN_ID}::${NP_URL}`,
+            txnWith([
+                entry('quote_request', 'm-req-1', '2026-10-29T10:00:00.000Z'),
+            ]),
+            {} as never
+        );
+        await expect(
+            advanceAfterSyncExchange(
+                { workbenchCache, queue },
+                { ...target, sentActionId: 'application_create' },
+                fast
+            )
+        ).resolves.toBe(false);
+        expect(mockedAct).not.toHaveBeenCalled();
+    });
 });

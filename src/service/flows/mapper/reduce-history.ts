@@ -10,6 +10,7 @@ export function reduceApiDataList(
     const map = new Map<string, ApiHistory>();
     const fd = isFdDomain(domain);
     let replays = 0;
+    const seen = new Set<string>();
 
     for (const vagueItem of data) {
         if (vagueItem.entryType === 'FORM') {
@@ -28,14 +29,15 @@ export function reduceApiDataList(
             }
         } else {
             const item = vagueItem;
-            // FD: a byte-identical re-send the workbench let through (fdReplay) is an entry of
-            // its own, so a flow step that re-sends a message (a retry) can map to it; a
-            // redelivery with no step of its own is folded back into the step that recorded
-            // the message (fdReplayResolver).
-            const replay = fd && item.fdReplay === true;
-            const key = replay
-                ? `${item.action}|${item.messageId}|replay#${replays++}`
-                : `${item.action}|${item.messageId}`;
+            // FD: an FD message_id is single-use, so an entry repeating an earlier action and
+            // message_id is a re-send of that message (the recorder may also flag it
+            // fdReplay). Each re-send is an entry of its own, so a flow step that re-sends a
+            // message (a retry) can map to it; a redelivery with no step of its own is folded
+            // back into the step that recorded the message (fdReplayResolver).
+            const base = `${item.action}|${item.messageId}`;
+            const replay = fd && (item.fdReplay === true || seen.has(base));
+            seen.add(base);
+            const key = replay ? `${base}|replay#${replays++}` : base;
             if (!map.has(key)) {
                 map.set(key, {
                     entryType: 'API',

@@ -50,6 +50,8 @@ export interface FdSendMeta {
     resend?: boolean;
     /** Deliver the same text this many times concurrently (scenario `deliveries`). */
     deliveries?: number;
+    /** The flow step this send is for (the advance guards against re-sending it in a loop). */
+    actionId?: string;
     /** A replay's exact original text, sent unchanged so the body digest matches. */
     rawBody?: string;
     /**
@@ -159,7 +161,10 @@ export async function finaliseFdOutgoing(
     });
     await out.txn.save();
 
-    const fd: FdSendMeta = { pathParams: out.draft.pathParams };
+    const fd: FdSendMeta = {
+        pathParams: out.draft.pathParams,
+        actionId: actionMeta.actionId,
+    };
     if (resend) {
         // The engine keeps bodies as canonical JSON; the original text makes the repeat
         // byte-identical, as a retry must be.

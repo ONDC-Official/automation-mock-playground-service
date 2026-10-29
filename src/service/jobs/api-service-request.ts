@@ -96,6 +96,11 @@ async function sendFd(
 ): Promise<ApiServiceRequestJobResult> {
     const raw = data.fd?.rawBody ?? JSON.stringify(data.payload);
     const copies = Math.max(1, data.fd?.deliveries ?? 1);
+    // A re-send's history entry repeats the original's message_id: count what is recorded
+    // already, so the flow moves on once the re-send's own entry is there.
+    const recordedBefore = data.fd?.resend
+        ? await countRecorded(deps, data)
+        : 0;
     const deliver = async (): Promise<FdReceipt> => {
         try {
             const res = await axios.post(url, raw, {
@@ -135,7 +140,7 @@ async function sendFd(
         r => r.status !== undefined && r.status >= 200 && r.status < 300
     );
     if (accepted && !data.fd?.rawBody) await rememberFdSent(deps, data, raw);
-    await afterFdSend(deps, data, receipts);
+    await afterFdSend(deps, data, receipts, recordedBefore);
     const first = receipts[0];
     if (first.status !== undefined && first.status < 300) {
         return {
@@ -162,7 +167,8 @@ async function sendFd(
 async function afterFdSend(
     deps: ApiServiceRequestJobDeps | undefined,
     data: ApiServiceRequestJobParams,
-    receipts: FdReceipt[]
+    receipts: FdReceipt[],
+    recordedBefore = 0
 ): Promise<void> {
     if (data.fd?.replay) return;
     if (!deps) {
@@ -198,7 +204,7 @@ async function afterFdSend(
                 r => r.status !== undefined && r.status >= 200 && r.status < 300
             )
         ) {
-            advanceAfterSend(deps, data);
+            advanceAfterSend(deps, data, recordedBefore + 1);
         }
         return;
     }
@@ -255,7 +261,8 @@ async function rememberFdSent(
 
 function advanceAfterSend(
     deps: ApiServiceRequestJobDeps,
-    data: ApiServiceRequestJobParams
+    data: ApiServiceRequestJobParams,
+    minEntries = 1
 ): void {
     const context = (data.payload as { context?: Record<string, unknown> })
         ?.context;
@@ -268,7 +275,31 @@ function advanceAfterSend(
         transactionId,
         subscriberUrl: data.subscriberUrl,
         messageId,
+        ...(minEntries > 1 && { minEntries }),
+        ...(data.fd?.actionId && { sentActionId: data.fd.actionId }),
     });
+}
+
+/** How many history entries the transaction holds for the message being sent. */
+async function countRecorded(
+    deps: ApiServiceRequestJobDeps | undefined,
+    data: ApiServiceRequestJobParams
+): Promise<number> {
+    const context = (data.payload as { context?: Record<string, unknown> })
+        ?.context;
+    const transactionId = context?.transaction_id;
+    const messageId = context?.message_id;
+    if (!deps || typeof transactionId !== 'string') return 0;
+    try {
+        const txn = await deps.workbenchCache
+            .TransactionalCacheService()
+            .getTransactionData(transactionId, data.subscriberUrl);
+        return txn.apiList.filter(
+            e => e.entryType === 'API' && e.messageId === messageId
+        ).length;
+    } catch {
+        return 0;
+    }
 }
 
 export function apiServiceRequestJobComplete(
