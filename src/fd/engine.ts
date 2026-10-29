@@ -22,6 +22,7 @@ import logger from '../utils/logger';
 import { WorkbenchCacheServiceType } from '../service/cache/workbench-cache';
 import { FD_STATE_TTL_SECONDS } from './constants';
 import {
+    FdConfigError,
     FdIdentity,
     FdRole,
     fdIdentity,
@@ -226,12 +227,21 @@ function engineFor(
         engine = (async () => {
             const spec = await readFdSpecSource();
             const routes = await routeIndexFor(domain, version);
-            const created = loadContract().createEngine({
-                spec,
-                routes,
-                identity: fdIdentity(role, domain, version),
-                role,
-            });
+            let created: FdEngine;
+            try {
+                created = loadContract().createEngine({
+                    spec,
+                    routes,
+                    identity: fdIdentity(role, domain, version),
+                    role,
+                });
+            } catch (e) {
+                // The engine fails closed (e.g. the issuer role without signing keys); keep
+                // its reason in the 500 a request gets.
+                throw new FdConfigError(
+                    `cannot create the FD engine for ${role} (${domain} ${version}): ${(e as Error).message}`
+                );
+            }
             logger.info('FD engine created', { domain, version, role });
             return created;
         })();

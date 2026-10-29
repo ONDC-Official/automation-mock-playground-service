@@ -854,7 +854,7 @@ Adding a new service: private field + lazy getter + setter (test override) + res
 | `FD_SPEC` | FD only: path to the FD OpenAPI YAML (required for FD) |
 | `FD_ROUTE_TABLE` | FD only: path to fd_routes.yaml; overrides `GET {CONFIG_SERVICE_URL}/api-service/fdRoutes` |
 | `FD_SUBSCRIBER_ID`, `FD_SUBSCRIBER_URL_BASE` | FD only: the workbench's identity (defaults from `API_SERVICE_URL`) |
-| `FD_SIGNING_PRIVATE_KEY`, `FD_UNIQUE_KEY_ID` | FD only, optional: issuer-role signing |
+| `FD_SIGNING_PRIVATE_KEY`, `FD_UNIQUE_KEY_ID` | FD only: required when the workbench plays the issuer (NP = BAP); the engine refuses that role without them |
 | `PWB_INTERNAL_KEY` | FD only, optional: `X-Pwb-Internal-Key` on sends |
 
 ### 14.5 Server boot (`server.ts`)

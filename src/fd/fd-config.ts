@@ -79,7 +79,8 @@ export function fdWorkbenchUris(domain: string, version: string) {
  * - `FD_SUBSCRIBER_ID` (default: the API service host, as Beckn flows use);
  * - `FD_SUBSCRIBER_URL_BASE` (default `<API_SERVICE_URL>/<domain>/<version>`), plus
  *   `/investor-app` or `/issuer`;
- * - `FD_SIGNING_PRIVATE_KEY`, `FD_UNIQUE_KEY_ID` (optional; the issuer role signs quotes).
+ * - `FD_SIGNING_PRIVATE_KEY`, `FD_UNIQUE_KEY_ID`: required when the workbench plays the issuer
+ *   (NP = BAP), which signs quotes; the engine refuses to start that role without them.
  */
 export function fdIdentity(
     role: FdRole,

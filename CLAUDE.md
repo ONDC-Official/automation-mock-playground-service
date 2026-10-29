@@ -98,8 +98,8 @@ FD_ROUTE_TABLE           path to fd_routes.yaml; overrides the config service's
 FD_SUBSCRIBER_ID         workbench subscriber id (default: API_SERVICE_URL host)
 FD_SUBSCRIBER_URL_BASE   base of the workbench's FD URIs (default <API_SERVICE_URL>/<domain>/<version>);
                          the workbench is <base>/investor-app and <base>/issuer
-FD_SIGNING_PRIVATE_KEY   optional; the issuer role signs quotes with it
-FD_UNIQUE_KEY_ID         optional; key id for FD_SIGNING_PRIVATE_KEY
+FD_SIGNING_PRIVATE_KEY   required when the workbench plays the issuer (NP = BAP): it signs quotes
+FD_UNIQUE_KEY_ID         required with FD_SIGNING_PRIVATE_KEY: its key id
 PWB_INTERNAL_KEY         optional; sent as X-Pwb-Internal-Key on every FD call to the API service
 ```
 

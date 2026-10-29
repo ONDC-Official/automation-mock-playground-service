@@ -10,7 +10,7 @@ import {
     openFdTransaction,
     resetFdEngineCache,
 } from './engine';
-import { resetFdConfigCache } from './fd-config';
+import { FdConfigError, resetFdConfigCache } from './fd-config';
 import { InternalServerError } from '../errors/custom-errors';
 
 // The engine package, as §7 describes it. The real one is built by another workstream.
@@ -177,6 +177,20 @@ describe('FD engine adapter', () => {
         // Cached: a second lookup doesn't refetch.
         await getFdRoute(FD, '0.1.4', 'deposit_read');
         expect(get).toHaveBeenCalledTimes(1);
+    });
+
+    it('an engine that refuses its config fails with FdConfigError carrying the reason', async () => {
+        mockCreateEngine.mockImplementationOnce(() => {
+            throw new Error('identity needs signingPrivateKey and uniqueKeyId');
+        });
+        const open = openFdTransaction(
+            WorkbenchCacheService(createCache('mock')),
+            key
+        );
+        await expect(open).rejects.toBeInstanceOf(FdConfigError);
+        await expect(open).rejects.toThrow(
+            /DEPOSIT_ISSUER.*signingPrivateKey and uniqueKeyId/
+        );
     });
 
     it('fails clearly when FD_SPEC is missing', async () => {
