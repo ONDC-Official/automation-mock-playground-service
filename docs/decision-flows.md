@@ -348,7 +348,7 @@ Loop over `extrasNext` placeholders. Each is gated by **its own** `extraFlowStat
 ### 6.1 Resolver chain
 
 ```
-sequenceResolver → extrasResolver → missedResolver
+sequenceResolver → extrasResolver → fdReplayResolver → missedResolver
 ```
 
 `mapper/flow-map-builder.ts:62-66`. Iteration: for each reduced+sorted apiList entry, resolvers run in order; first to return `{consumed:true}` wins.
@@ -357,6 +357,7 @@ sequenceResolver → extrasResolver → missedResolver
 |---|---|---|---|
 | `sequenceResolver` | `mapper/resolvers/sequence-resolver.ts` | `apiData.action === flowSequence[cursor].type` (or formType match) | push COMPLETE entry to `mappedFlow.sequence`, advance cursor |
 | `extrasResolver` | `mapper/resolvers/extras-resolver.ts` | `extrasByType.has(apiData.action)` (API entries only) | RESOLVE pair placeholder OR ADD fresh COMPLETE + placeholder (§7) |
+| `fdReplayResolver` | `mapper/resolvers/fd-replay-resolver.ts` | FD only: an entry `reduceApiDataList` marked `fdReplay` (a re-send) that no step consumed | add its payloads to the COMPLETE step that recorded the same action + message_id (§15.6) |
 | `missedResolver` | `mapper/resolvers/missed-resolver.ts` | always consumes (terminal) | classify into one of 3 missed kinds (§6.2) |
 
 ### 6.2 Missed classification (`missed-resolver.ts:5-62`)
@@ -888,6 +889,7 @@ Gate: `isFdDomain(domain)` (`fd/constants.ts`). Beckn domains never enter any ro
 | Identity | `FD_SUBSCRIBER_ID`, `FD_SUBSCRIBER_URL_BASE` + `/issuer` or `/investor-app`, `FD_SIGNING_PRIVATE_KEY`, `FD_UNIQUE_KEY_ID` |
 | Counterparty | session `subscriberId`, `subscriberUrl`, passed on every `draft` |
 | State | `FD_ENGINE_STATE::<txId>::<subscriberUrl>` (DB 0, 5 h), the engine's `serialiseFdState` text; findings are kept in it by the engine |
+| State lock | `FD_ENGINE_LOCK::<txId>::<subscriberUrl>` (SET NX PX 15 s): `openFdTransaction` takes it, `save()`/`release()` drop it; after 15 s of waiting the state is opened anyway (warning). Needs `ICacheService.setIfAbsent`/`deleteIfValue` (Redis); a cache without them does not lock |
 | Last NP message per action | `FD_INBOUND::<txId>::<subscriberUrl>` (DB 0, 5 h), the `answering` of a callback draft |
 | Workbench URIs | config-cache: `bap_uri` `…/investor-app`, `bpp_uri` `…/issuer` (Beckn: `buyer`/`seller`) |
 
@@ -898,27 +900,32 @@ Gate: `isFdDomain(domain)` (`fd/constants.ts`). Beckn domains never enter any ro
 | `X-Pwb-Fd-Route` present AND route mode `SYNC` AND kind `request` | `answerFdSync` (`fd/incoming.ts`): `observe` → pending step of that action (LISTENING first) → its saveData on the request → `draft({action, answering, scenario})` → step generate script with `sessionData.fd_draft` → drop `fdScenario` → `sent` → save → `sendRawBody(body, draft.httpStatus ?? 200)`. No queue, no `actUponFlow`. Then `scheduleFdAdvance` (§15.4) |
 | SYNC, `observe` says `replayOf` | answer with `replayFor(replayOf).body`, no advance |
 | SYNC, no pending step for the action | answer with the engine draft alone (warning) |
-| Otherwise (async request, callback, webhook) | `observeIncomingFd`: `observe`, save, findings logged, message kept in `FD_INBOUND` → `next()` (validate/save/act as Beckn) |
+| Otherwise (async request, callback, webhook) | `observeIncomingFd`: `observe` (for a request, with `scenario` = the `fdScenario` of the first pending step of its callback action, so a refusal the step forces is decided with the request), save, findings logged, message kept in `FD_INBOUND` → `next()` (validate/save/act as Beckn) |
 | Async, `observe` says `replayOf` | `sendAck(context)`, no `next()`: the flow does not advance |
 
 ### 15.3 Jobs
 
 | Job | FD behaviour |
 |---|---|
-| GENERATE (`generate-response.ts`) | before the scripts: `prepareFdOutgoing` → `draft({action, answering: FD_INBOUND[route.inReplyTo] for callbacks, scenario: mock.defaultPayload.fdScenario, userInputs})`; `txnMockData.fd_draft = draft.body` (in memory only). After the generate script: `finaliseFdOutgoing` drops `fdScenario`, `sent`, save; result carries `fd: {pathParams, syncAnswer?}` |
+| GENERATE (`generate-response.ts`) | before the scripts: `prepareFdOutgoing` → `draft({action, answering: FD_INBOUND[route.inReplyTo] for callbacks, scenario: mock.defaultPayload.fdScenario, userInputs: {...fdScenario.userInputs, ...inputs}})`; `txnMockData.fd_draft = draft.body` (in memory only). After the generate script: `finaliseFdOutgoing` drops `fdScenario`, `sent` (`replay: true` for `fdScenario.retry`), save; result carries `fd: {pathParams, actionId, syncAnswer?, resend?, rawBody?, deliveries?}` — `retry` sends the original text from `FD_SENT_RAW`. The lock is released on every exit (`finally`) |
 | GENERATE complete | passes `fd` to the send job |
-| SEND (`api-service-request.ts`) | headers `X-Pwb-Internal-Key` (env `PWB_INTERNAL_KEY`, if set), `X-Pwb-Fd-Path-Params` (JSON from the draft), `X-Pwb-Fd-Replay: 1` on replays |
+| SEND (`api-service-request.ts`) | headers `X-Pwb-Internal-Key` (env `PWB_INTERNAL_KEY`, if set), `X-Pwb-Fd-Path-Params` (JSON from the draft), `X-Pwb-Fd-Replay: 1` on replays and re-sends; the body is the job's own JSON text, or `fd.rawBody` (a stored original); `fd.deliveries: n` posts the same text n times concurrently |
+| SEND, async (callback, webhook, workbench request) | every receipt (each copy's HTTP status and body) is `observe`d as the NP's acknowledgement, under the lock (`fd/receipts.ts`); extra copies are first recorded with `sent({replay:true})`; a response carrying `X-Pwb-Fd-Gate-Error` is the workbench's own refusal and is only logged. Then `scheduleFdAdvance` (a re-send waits for its own entry: `minEntries`) |
 | SEND, route mode SYNC (workbench calls the NP) | the HTTP response is the NP's answer: `observe` (`requestMessageId`), save, `sessionData.fd_responses[actionId] = body`, then `scheduleFdAdvance` |
 
 ### 15.4 How a SYNC step completes (`fd/advance.ts`)
 
-The API service records the exchange: network-observability → recorder appends ONE apiList entry (request action + message_id, the answer as `response`) and sets `FLOW_STATUS` AVAILABLE. That entry makes the mapper show the step COMPLETE. The recorder runs off the response path, so `scheduleFdAdvance` polls the transaction for that `message_id` (150 ms, up to 10 s), waits 250 ms for the recorder's FLOW_STATUS write, then runs `actOnFlowService` once, as `/manual` does after an async message.
+The API service records the exchange: network-observability → recorder appends ONE apiList entry (request action + message_id, the answer as `response`) and sets `FLOW_STATUS` AVAILABLE. That entry makes the mapper show the step COMPLETE. The recorder runs off the response path, so `scheduleFdAdvance` polls the transaction for that `message_id` (150 ms, up to 10 s; `minEntries` entries for a re-send), waits 250 ms for the recorder's FLOW_STATUS write, then runs `actOnFlowService` once, as `/manual` does after an async message. With `sentActionId`, it does not dispatch when that step is still the next pending one (a send that did not complete its step is never re-sent in a loop).
 
 `checkPerfectAck(response, domain, messageId)` (`mapper/reduce-history.ts`), FD: an ACK must echo `context` (same `message_id`), whatever its HTTP status (fd-gate sends 202 for an async request); a SYNC answer `{context, message}` without `error` is SUCCESS; NACK / `error` is ERROR. Beckn rule unchanged.
 
 ### 15.5 `POST /fd/replay` (`fd/replay.ts`)
 
 Body `{domain, version, action, message_id, transaction_id, subscriber_url}` (zod; non-FD domain → 400). Loads the transaction → session → engine state; `replayFor(message_id)`; none → 200 `{replayed:false}`; else enqueue SEND with the stored body and `fd.replay` (→ `X-Pwb-Fd-Replay: 1`), `sent({..., replay:true})`, save → 200 `{replayed:true, action, jobId}`.
+
+### 15.6 Re-sends in the flow map (`mapper/reduce-history.ts`)
+
+An FD `message_id` is single-use, so an apiList entry repeating an earlier action + message_id is a re-send (the recorder's `fdReplay` flag is honoured but not relied on: the mock-side re-send is not flagged). Each re-send is a `ReducedApiData` of its own (`fdReplay: true`), timed no earlier than anything recorded before it (it carries the original's `context.timestamp`). A step of the same action at the cursor consumes it (a retry step, M6 scenario 35); otherwise `fdReplayResolver` adds it to the step that recorded the message (concurrent deliveries, scenario 12; `/fd/replay`). Beckn: unchanged.
 
 ## Appendix: out-of-repo dependencies
 
