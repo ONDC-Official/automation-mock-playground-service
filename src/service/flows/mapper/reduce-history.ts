@@ -11,6 +11,10 @@ export function reduceApiDataList(
     const fd = isFdDomain(domain);
     let replays = 0;
     const seen = new Set<string>();
+    // FD: the latest time recorded so far, in recording order. A re-send carries the
+    // original's bytes, so its context.timestamp is the original's; it sorts by when it was
+    // recorded instead (no earlier than anything recorded before it).
+    let latestMs = Number.NEGATIVE_INFINITY;
 
     for (const vagueItem of data) {
         if (vagueItem.entryType === 'FORM') {
@@ -38,12 +42,20 @@ export function reduceApiDataList(
             const replay = fd && (item.fdReplay === true || seen.has(base));
             seen.add(base);
             const key = replay ? `${base}|replay#${replays++}` : base;
+            let timestamp = item.timestamp;
+            if (fd) {
+                const ms = Date.parse(item.timestamp);
+                if (replay && Number.isFinite(latestMs) && !(ms >= latestMs)) {
+                    timestamp = new Date(latestMs).toISOString();
+                }
+                if (Number.isFinite(ms) && ms > latestMs) latestMs = ms;
+            }
             if (!map.has(key)) {
                 map.set(key, {
                     entryType: 'API',
                     action: item.action,
                     messageId: item.messageId,
-                    timestamp: item.timestamp,
+                    timestamp,
                     subStatus: checkPerfectAck(
                         item.response,
                         domain,

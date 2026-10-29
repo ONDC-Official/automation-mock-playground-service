@@ -1519,12 +1519,9 @@ describe('FD re-sends (fdReplay entries)', () => {
                         'm2',
                         '2024-01-01T00:00:01.000Z'
                     ),
-                    entry(
-                        'nominee_register',
-                        'm1',
-                        '2024-01-01T00:00:02.000Z',
-                        true
-                    ),
+                    // A re-send carries the original's bytes, so its context.timestamp;
+                    // the recorder appends it last and does not flag it.
+                    entry('nominee_register', 'm1', '2024-01-01T00:00:00.000Z'),
                 ],
                 'BPP'
             ),
