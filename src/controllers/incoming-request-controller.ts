@@ -74,7 +74,9 @@ export function incomingRequestControllers(
                     ctx.transactionData,
                     ctx.flow,
                     flowStatus.status,
-                    mockSessionData
+                    mockSessionData,
+                    undefined,
+                    ctx.domain
                 );
                 const combinedSteps: MappedStep[] = [
                     ...flowStatusComplete.sequence,
