@@ -12,7 +12,7 @@ import { logError } from '../utils/req-utils';
 import logger from '../utils/logger';
 import { sendAck, sendRawBody, sendSuccess } from '../utils/res-utils';
 import { FD_HEADERS, isFdDomain } from '../fd/constants';
-import { actionOf, inboundFromRequest } from '../fd/context';
+import { actionOf, inboundFromRequest, messageIdOf } from '../fd/context';
 import { getFdRoute } from '../fd/engine';
 import {
     answerFdSync,
@@ -57,8 +57,20 @@ export function fdControllers(
                     actionOf(req.body) ?? (req.params.action as string);
                 const route = await getFdRoute(ctx.domain, ctx.version, action);
                 const inbound = inboundFromRequest(req, action);
+                const sync = isFdSyncRequest(req.get(FD_HEADERS.route), route);
+                // An async request arrives with its body alone: its path parameters are where
+                // fd-gate left them (consent_withdraw names its consent only by the path).
+                if (!sync && !inbound.pathParams && route && route.pathParams.length > 0) {
+                    const messageId = messageIdOf(req.body);
+                    const stored = messageId
+                        ? await workbenchCache
+                              .FdCacheService()
+                              .getPathParams(ctx.domain, ctx.transactionId, messageId)
+                        : null;
+                    if (stored) inbound.pathParams = stored;
+                }
 
-                if (isFdSyncRequest(req.get(FD_HEADERS.route), route)) {
+                if (sync) {
                     const answer = await answerFdSync(ctx, inbound, {
                         workbenchCache,
                         mockRunnerCache,

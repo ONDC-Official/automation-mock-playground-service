@@ -342,6 +342,41 @@ describe('FD /manual/:action — async messages', () => {
         expect(kept).toMatchObject({ action: 'application_create', body });
     });
 
+    it('an async request without the path-params header gets the ones fd-gate stored (consent_withdraw)', async () => {
+        const { cache0, workbenchCache, ctx } = await seedFd('BAP');
+        const txn = fakeFdTxn();
+        mockedOpen.mockResolvedValue(txn);
+        mockedGetRoute.mockResolvedValue({
+            ...route('consent_withdraw', 'ASYNC_ACK_CALLBACK'),
+            path: '/consents/{consentId}/withdraw',
+            pathParams: ['consentId'],
+        });
+        // ONIX forwards an async request with its body alone; fd-gate left the path params here.
+        await cache0.set(
+            `FD_PATH_PARAMS::${FD}::${TXN_ID}::m-cw-1`,
+            { consentId: 'CNS-4' },
+            {} as never
+        );
+        const body = {
+            ...quoteRequest,
+            context: {
+                ...quoteRequest.context,
+                action: 'consent_withdraw',
+                message_id: 'm-cw-1',
+            },
+        };
+        const next = jest.fn();
+        await fdControllers(
+            workbenchCache,
+            {} as MockRunnerConfigCache,
+            queue
+        ).fdIncomingRequest(makeReq(ctx, body), fakeRes(), next);
+        expect(txn.observe).toHaveBeenCalledWith(
+            expect.objectContaining({ pathParams: { consentId: 'CNS-4' } })
+        );
+        expect(next).toHaveBeenCalledWith();
+    });
+
     it('a SYNC route without fd-gate’s X-Pwb-Fd-Route header takes the async path', async () => {
         const { workbenchCache, ctx } = await seedFd('BAP');
         const txn = fakeFdTxn();

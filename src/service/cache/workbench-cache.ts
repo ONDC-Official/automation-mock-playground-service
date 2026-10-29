@@ -660,6 +660,21 @@ const fdCache = (cache: ICacheService) => {
             ttlSeconds
         );
 
+    /**
+     * The path parameters of an NP's request, as fd-gate (np mode) left them under
+     * `FD_PATH_PARAMS::<domain>::<transaction_id>::<message_id>`: an asynchronous request reaches
+     * the playground with its body alone, without `X-Pwb-Fd-Path-Params`.
+     */
+    const getPathParams = async (
+        domain: string,
+        transactionId: string,
+        messageId: string
+    ): Promise<Record<string, string> | null> =>
+        cache.get(
+            `FD_PATH_PARAMS::${domain}::${transactionId.trim()}::${messageId.trim()}`,
+            z.record(z.string(), z.string())
+        );
+
     const lockKey = (transactionId: string, subscriberUrl: string) =>
         `FD_ENGINE_LOCK::${transactionId.trim()}::${subscriberUrl.trim()}`;
 
@@ -698,6 +713,7 @@ const fdCache = (cache: ICacheService) => {
         setInbound,
         getSentRaw,
         setSentRaw,
+        getPathParams,
         tryLockEngineState,
         unlockEngineState,
     };
