@@ -11,6 +11,13 @@ import {
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import { getSaveDataConfig } from '../../utils/runner-utils';
 import { buildErrorPayload } from '../../utils/build-error-payload';
+import { FD_DRAFT_SESSION_KEY, isFdDomain } from '../../fd/constants';
+import {
+    FdOutgoing,
+    FdSendMeta,
+    finaliseFdOutgoing,
+    prepareFdOutgoing,
+} from '../../fd/outgoing';
 
 export const GENERATE_PAYLOAD_JOB = 'GENERATE_PAYLOAD_JOB';
 
@@ -24,6 +31,8 @@ export type GenerateMockPayloadJobResult = {
     success: boolean;
     message: string;
     payload?: unknown;
+    /** FD only: what the send job needs (path params, SYNC-answer hook). */
+    fd?: FdSendMeta;
 };
 
 type MeetRequirementsResult = {
@@ -131,6 +140,20 @@ export function createGeneratePayloadJobHandler(
                 txnMockData.finvuUrl = finvuUrl;
             }
 
+            // FD: the engine drafts the message; the step script returns
+            // `sessionData.fd_draft`, possibly tweaked.
+            let fdOutgoing: FdOutgoing | undefined;
+            if (isFdDomain(flowContext.domain)) {
+                fdOutgoing = await prepareFdOutgoing({
+                    flowContext,
+                    actionMeta,
+                    inputs: data.inputs,
+                    runnerConfig: mockRunner.getConfig(),
+                    workbenchCache,
+                });
+                txnMockData[FD_DRAFT_SESSION_KEY] = fdOutgoing.draft.body;
+            }
+
             if (process.env.SKIP_MEETS_REQUIRMENTS === 'true') {
                 logger.info(
                     'Skipping meet requirements check (SKIP_MEETS_REQUIRMENTS=true)',
@@ -224,6 +247,20 @@ export function createGeneratePayloadJobHandler(
             }
 
             logger.debug('Generated mock payload', logMeta);
+            if (fdOutgoing) {
+                const { payload, fd } = await finaliseFdOutgoing(
+                    fdOutgoing,
+                    genOutput.result,
+                    flowContext,
+                    actionMeta
+                );
+                return {
+                    success: true,
+                    message: 'Payload generated successfully',
+                    payload,
+                    fd,
+                };
+            }
             return {
                 success: true,
                 message: 'Payload generated successfully',
@@ -281,6 +318,7 @@ export function createGenerationRequestCompleteHandler(
                     flow_id: job.data.flowContext.flowId,
                     session_id: job.data.flowContext.sessionId,
                 },
+                ...(parsedResult?.fd ? { fd: parsedResult.fd } : {}),
             };
             const mockRunnerConfig = await mockRunnerCache.getMockRunnerConfig(
                 job.data.flowContext.domain,

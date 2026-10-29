@@ -1,0 +1,411 @@
+import axios from 'axios';
+import {
+    createGeneratePayloadJobHandler,
+    createGenerationRequestCompleteHandler,
+    GenerateMockPayloadJobResult,
+} from './generate-response';
+import {
+    ApiServiceRequestJobParams,
+    createApiServiceRequestJobHandler,
+    SEND_TO_API_SERVICE_JOB,
+} from './api-service-request';
+import { getFdRoute, openFdTransaction, FdRouteInfo } from '../../fd/engine';
+import { scheduleFdAdvance } from '../../fd/advance';
+import { MockRunnerConfigCache } from '../cache/config-cache';
+import { IQueueService, QueueJob } from '../../queue/IQueueService';
+import { MappedStep } from '../../types/mapped-flow-types';
+import {
+    fakeFdTxn,
+    fakeRunner,
+    FD,
+    FD_VERSION,
+    NP_ID,
+    NP_URL,
+    SESSION_ID,
+    seedFd,
+    TXN_ID,
+} from '../../test/fd-fixtures';
+
+jest.mock('../../fd/engine', () => ({
+    ...jest.requireActual('../../fd/engine'),
+    getFdRoute: jest.fn(),
+    openFdTransaction: jest.fn(),
+}));
+jest.mock('../../fd/advance', () => ({
+    ...jest.requireActual('../../fd/advance'),
+    scheduleFdAdvance: jest.fn(async () => true),
+}));
+
+const mockedGetRoute = getFdRoute as jest.MockedFunction<typeof getFdRoute>;
+const mockedOpen = openFdTransaction as jest.MockedFunction<
+    typeof openFdTransaction
+>;
+const mockedAdvance = scheduleFdAdvance as jest.MockedFunction<
+    typeof scheduleFdAdvance
+>;
+
+const route = (over: Partial<FdRouteInfo>): FdRouteInfo => ({
+    action: 'x',
+    kind: 'request',
+    method: 'POST',
+    path: '/x',
+    pathParams: [],
+    mode: 'ASYNC_ACK_CALLBACK',
+    caller: 'INVESTOR_APP',
+    callee: 'DEPOSIT_ISSUER',
+    callback: null,
+    inReplyTo: null,
+    ...over,
+});
+
+const mappedStep = (actionId: string, owner: 'BAP' | 'BPP'): MappedStep => ({
+    status: 'RESPONDING',
+    actionId,
+    actionType: actionId,
+    owner,
+    index: 2,
+    unsolicited: false,
+    pairActionId: null,
+});
+
+function queueSpy(): IQueueService & { enqueue: jest.Mock } {
+    return {
+        process: jest.fn(),
+        enqueue: jest.fn(async () => 'job-1'),
+        on: jest.fn(),
+        close: jest.fn(),
+    };
+}
+
+const callbackDraft = {
+    context: { action: 'on_application_create', message_id: 'm-cb-1' },
+    fdEnvelope: { inReplyTo: 'm-req-1' },
+    message: { application: { applicationId: 'APP-1', version: 1 } },
+};
+
+afterEach(() => {
+    delete process.env.PWB_INTERNAL_KEY;
+});
+
+describe('FD GENERATE job: draft → script → sent', () => {
+    it('drafts answering the stored request, runs the script on fd_draft, drops fdScenario, records sent', async () => {
+        const { workbenchCache, ctx } = await seedFd('BAP');
+        const request = {
+            body: {
+                context: {
+                    action: 'application_create',
+                    message_id: 'm-req-1',
+                },
+            },
+            action: 'application_create',
+            method: 'POST',
+        };
+        await workbenchCache
+            .FdCacheService()
+            .setInbound(TXN_ID, NP_URL, 'application_create', request, 60);
+
+        const txn = fakeFdTxn({
+            draftBody: callbackDraft,
+            pathParams: { applicationId: 'APP-1' },
+        });
+        mockedOpen.mockResolvedValue(txn);
+        mockedGetRoute.mockResolvedValue(
+            route({
+                action: 'on_application_create',
+                kind: 'callback',
+                inReplyTo: 'application_create',
+                caller: 'DEPOSIT_ISSUER',
+                callee: 'INVESTOR_APP',
+            })
+        );
+        const runner = fakeRunner(
+            [
+                {
+                    action_id: 'on_application_create',
+                    mock: {
+                        defaultPayload: {
+                            fdScenario: { mutate: ['/message/x'] },
+                        },
+                    },
+                },
+            ],
+            (_id, session) => ({
+                ...(session.fd_draft as object),
+                tweak: 'by script',
+                fdScenario: { mutate: ['/message/x'] },
+            })
+        );
+        const configCache = {
+            getRunnerInstance: jest.fn(async () => runner),
+        } as unknown as MockRunnerConfigCache;
+
+        const handler = createGeneratePayloadJobHandler(
+            workbenchCache,
+            configCache
+        );
+        const result = (await handler({
+            flowContext: ctx,
+            actionMeta: mappedStep('on_application_create', 'BPP'),
+            inputs: { amount: 5 },
+        })) as GenerateMockPayloadJobResult;
+
+        expect(txn.draft).toHaveBeenCalledWith({
+            action: 'on_application_create',
+            answering: request,
+            scenario: { mutate: ['/message/x'] },
+            userInputs: { amount: 5 },
+        });
+        const scriptSession =
+            runner.runGeneratePayloadWithSession.mock.calls[0][1];
+        expect(scriptSession.fd_draft).toEqual(callbackDraft);
+
+        expect(result.payload).toEqual({
+            ...callbackDraft,
+            tweak: 'by script',
+        });
+        expect(result.payload).not.toHaveProperty('fdScenario');
+        expect(txn.calls).toEqual(['draft', 'sent', 'save']);
+        expect(txn.sent).toHaveBeenCalledWith({
+            action: 'on_application_create',
+            body: result.payload,
+            pathParams: { applicationId: 'APP-1' },
+            answering: 'm-req-1',
+        });
+        expect(result.fd).toEqual({ pathParams: { applicationId: 'APP-1' } });
+
+        // The engine's draft is not persisted into the session.
+        const session = await workbenchCache
+            .TxnBusinessCacheService()
+            .getMockSessionData(TXN_ID, NP_URL, SESSION_ID);
+        expect(session).not.toHaveProperty('fd_draft');
+    });
+
+    it('fails the job (and frees the step) when the engine is unavailable', async () => {
+        const { workbenchCache, ctx } = await seedFd('BAP');
+        mockedGetRoute.mockRejectedValue(new Error('[FD] engine unavailable'));
+        const configCache = {
+            getRunnerInstance: jest.fn(async () => fakeRunner([])),
+        } as unknown as MockRunnerConfigCache;
+        await workbenchCache
+            .FlowStatusCacheService()
+            .setFlowStatus(TXN_ID, NP_URL, 'WORKING');
+        await expect(
+            createGeneratePayloadJobHandler(
+                workbenchCache,
+                configCache
+            )({
+                flowContext: ctx,
+                actionMeta: mappedStep('on_application_create', 'BPP'),
+            })
+        ).rejects.toThrow('[FD] engine unavailable');
+        const status = await workbenchCache
+            .FlowStatusCacheService()
+            .getFlowStatus(TXN_ID, NP_URL, {});
+        expect(status.status).toBe('AVAILABLE');
+    });
+
+    it('the complete handler passes the FD metadata to the send job', async () => {
+        const { workbenchCache, ctx } = await seedFd('BAP');
+        const queue = queueSpy();
+        const configCache = {
+            getMockRunnerConfig: jest.fn(async () => ({
+                steps: [
+                    {
+                        action_id: 'on_application_create',
+                        mock: { saveData: {} },
+                    },
+                ],
+            })),
+        } as unknown as MockRunnerConfigCache;
+        const job = {
+            id: 'j1',
+            jobName: 'GENERATE_PAYLOAD_JOB',
+            timestamp: new Date(),
+            data: {
+                flowContext: ctx,
+                actionMeta: mappedStep('on_application_create', 'BPP'),
+            },
+        } as QueueJob<never>;
+        await createGenerationRequestCompleteHandler(
+            queue,
+            workbenchCache,
+            configCache
+        )(job, {
+            success: true,
+            message: 'ok',
+            payload: callbackDraft,
+            fd: { pathParams: { applicationId: 'APP-1' } },
+        });
+        expect(queue.enqueue).toHaveBeenCalledWith(
+            SEND_TO_API_SERVICE_JOB,
+            expect.objectContaining({
+                action: 'on_application_create',
+                domain: FD,
+                payload: callbackDraft,
+                fd: { pathParams: { applicationId: 'APP-1' } },
+            })
+        );
+    });
+
+    it('a workbench SYNC request carries the hook that observes the answer', async () => {
+        const { workbenchCache, ctx } = await seedFd('BPP');
+        const draft = {
+            context: { action: 'quote_request', message_id: 'm-q-1' },
+            message: { amount: 1 },
+        };
+        mockedOpen.mockResolvedValue(fakeFdTxn({ draftBody: draft }));
+        mockedGetRoute.mockResolvedValue(
+            route({ action: 'quote_request', mode: 'SYNC' })
+        );
+        const result = (await createGeneratePayloadJobHandler(workbenchCache, {
+            getRunnerInstance: jest.fn(async () =>
+                fakeRunner([{ action_id: 'quote_request', mock: {} }])
+            ),
+        } as unknown as MockRunnerConfigCache)({
+            flowContext: ctx,
+            actionMeta: mappedStep('quote_request', 'BAP'),
+        })) as GenerateMockPayloadJobResult;
+        expect(result.fd).toEqual({
+            pathParams: {},
+            syncAnswer: {
+                key: expect.objectContaining({
+                    transactionId: TXN_ID,
+                    subscriberUrl: NP_URL,
+                    npType: 'BPP',
+                    counterparty: {
+                        subscriberId: NP_ID,
+                        subscriberUri: NP_URL,
+                    },
+                }),
+                sessionId: SESSION_ID,
+                actionId: 'quote_request',
+                method: 'POST',
+                requestMessageId: 'm-q-1',
+            },
+        });
+    });
+});
+
+describe('SEND job headers', () => {
+    const base: ApiServiceRequestJobParams = {
+        action: 'on_application_create',
+        domain: FD,
+        version: FD_VERSION,
+        payload: callbackDraft,
+        subscriberUrl: NP_URL,
+        queryParams: { subscriber_url: NP_URL },
+    };
+
+    it('FD: adds X-Pwb-Internal-Key and X-Pwb-Fd-Path-Params', async () => {
+        process.env.PWB_INTERNAL_KEY = 'secret-key';
+        const post = jest
+            .spyOn(axios, 'post')
+            .mockResolvedValue({ status: 202, data: {} });
+        await createApiServiceRequestJobHandler()({
+            ...base,
+            fd: { pathParams: { applicationId: 'APP-1' } },
+        });
+        expect(post.mock.calls[0][2]?.headers).toEqual({
+            'X-Pwb-Internal-Key': 'secret-key',
+            'X-Pwb-Fd-Path-Params': '{"applicationId":"APP-1"}',
+        });
+    });
+
+    it('FD replay: adds X-Pwb-Fd-Replay: 1', async () => {
+        const post = jest
+            .spyOn(axios, 'post')
+            .mockResolvedValue({ status: 202, data: {} });
+        await createApiServiceRequestJobHandler()({
+            ...base,
+            fd: { pathParams: {}, replay: true },
+        });
+        expect(post.mock.calls[0][2]?.headers).toEqual({
+            'X-Pwb-Fd-Path-Params': '{}',
+            'X-Pwb-Fd-Replay': '1',
+        });
+    });
+
+    it('Beckn: no X-Pwb headers, request unchanged', async () => {
+        process.env.PWB_INTERNAL_KEY = 'secret-key';
+        const post = jest
+            .spyOn(axios, 'post')
+            .mockResolvedValue({ status: 200, data: {} });
+        await createApiServiceRequestJobHandler()({
+            ...base,
+            domain: 'ONDC:RET10',
+            version: '1.2.5',
+            action: 'on_search',
+        });
+        expect(post).toHaveBeenCalledWith(
+            expect.stringContaining('/ONDC:RET10/1.2.5/mock/on_search'),
+            callbackDraft,
+            { params: { subscriber_url: NP_URL } }
+        );
+    });
+});
+
+describe('SEND job: the NP’s SYNC answer to a workbench request', () => {
+    it('is observed, saved as the step result, and moves the flow on', async () => {
+        const { workbenchCache } = await seedFd('BPP');
+        const txn = fakeFdTxn();
+        mockedOpen.mockResolvedValue(txn);
+        const answer = {
+            context: { action: 'quote_request', message_id: 'm-ans-1' },
+            fdEnvelope: { inReplyTo: 'm-q-1' },
+            message: { quote: { quoteId: 'Q-9' } },
+        };
+        jest.spyOn(axios, 'post').mockResolvedValue({
+            status: 200,
+            data: answer,
+        });
+        const queue = queueSpy();
+        const key = {
+            domain: FD,
+            version: FD_VERSION,
+            transactionId: TXN_ID,
+            subscriberUrl: NP_URL,
+            npType: 'BPP' as const,
+        };
+        const result = await createApiServiceRequestJobHandler({
+            workbenchCache,
+            queue,
+        })({
+            action: 'quote_request',
+            domain: FD,
+            version: FD_VERSION,
+            payload: { context: { message_id: 'm-q-1' } },
+            subscriberUrl: NP_URL,
+            fd: {
+                pathParams: {},
+                syncAnswer: {
+                    key,
+                    sessionId: SESSION_ID,
+                    actionId: 'quote_request',
+                    method: 'POST',
+                    requestMessageId: 'm-q-1',
+                },
+            },
+        });
+
+        expect(result).toMatchObject({ success: true, statusCode: 200 });
+        expect(mockedOpen).toHaveBeenCalledWith(workbenchCache, key);
+        expect(txn.observe).toHaveBeenCalledWith(
+            expect.objectContaining({
+                body: answer,
+                action: 'quote_request',
+                method: 'POST',
+                httpStatus: 200,
+                requestMessageId: 'm-q-1',
+            })
+        );
+        expect(txn.calls).toEqual(['observe', 'save']);
+        const session = await workbenchCache
+            .TxnBusinessCacheService()
+            .getMockSessionData(TXN_ID, NP_URL, SESSION_ID);
+        expect(session.fd_responses).toEqual({ quote_request: answer });
+        expect(mockedAdvance).toHaveBeenCalledWith(
+            { workbenchCache, queue },
+            { transactionId: TXN_ID, subscriberUrl: NP_URL, messageId: 'm-q-1' }
+        );
+    });
+});
