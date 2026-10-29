@@ -1,5 +1,6 @@
 import MockRunner from '@ondc/automation-mock-runner';
 import jsonpath from 'jsonpath';
+import { z } from 'zod';
 import { ICacheService } from '../../cache/cache-interface';
 import {
     SessionCacheSchema,
@@ -543,8 +544,91 @@ const subscriberCache = (cache: ICacheService) => {
     };
 };
 
+/**
+ * FD-only keys (domain ONDC:FIS14:FD). Beckn flows never read or write them.
+ *
+ * - `FD_ENGINE_STATE::<transactionId>::<subscriberUrl>`: the engine's per-transaction state,
+ *   stored as the engine's own serialisation (canonical JSON), so the report service can read
+ *   it with `deserialiseFdState`.
+ * - `FD_INBOUND::<transactionId>::<subscriberUrl>`: the latest message the NP sent per FD
+ *   action, kept so a callback can be drafted `answering` its request.
+ */
+const fdCache = (cache: ICacheService) => {
+    const engineStateKey = (transactionId: string, subscriberUrl: string) =>
+        `FD_ENGINE_STATE::${transactionId.trim()}::${subscriberUrl.trim()}`;
+    const inboundKey = (transactionId: string, subscriberUrl: string) =>
+        `FD_INBOUND::${transactionId.trim()}::${subscriberUrl.trim()}`;
+    const InboundStoreSchema = z.record(z.string(), z.unknown());
+
+    /** The stored engine state as text, or null when the transaction has none yet. */
+    const getEngineState = async (
+        transactionId: string,
+        subscriberUrl: string
+    ): Promise<string | null> => {
+        const value = await cache.get(
+            engineStateKey(transactionId, subscriberUrl),
+            z.unknown()
+        );
+        if (value === null || value === undefined) return null;
+        // The engine's text is JSON; the cache layer hands it back parsed.
+        return typeof value === 'string' ? value : JSON.stringify(value);
+    };
+
+    /**
+     * Stores the engine's serialised state. The text is JSON, so it is stored as that JSON
+     * (not as a quoted string): the raw Redis value is the engine's serialisation.
+     */
+    const setEngineState = async (
+        transactionId: string,
+        subscriberUrl: string,
+        serialised: string,
+        ttlSeconds: number
+    ): Promise<void> => {
+        let value: unknown;
+        try {
+            value = JSON.parse(serialised);
+        } catch {
+            value = serialised;
+        }
+        await cache.set(
+            engineStateKey(transactionId, subscriberUrl),
+            value,
+            z.unknown(),
+            ttlSeconds
+        );
+    };
+
+    const getInbound = async (
+        transactionId: string,
+        subscriberUrl: string,
+        action: string
+    ): Promise<unknown | undefined> => {
+        const store = await cache.get(
+            inboundKey(transactionId, subscriberUrl),
+            InboundStoreSchema
+        );
+        return store?.[action];
+    };
+
+    const setInbound = async (
+        transactionId: string,
+        subscriberUrl: string,
+        action: string,
+        inbound: unknown,
+        ttlSeconds: number
+    ): Promise<void> => {
+        const key = inboundKey(transactionId, subscriberUrl);
+        const store = (await cache.get(key, InboundStoreSchema)) ?? {};
+        store[action] = inbound;
+        await cache.set(key, store, InboundStoreSchema, ttlSeconds);
+    };
+
+    return { getEngineState, setEngineState, getInbound, setInbound };
+};
+
 export type FlowStatusCacheService = ReturnType<typeof flowStatusCache>;
 export type SubscriberCacheService = ReturnType<typeof subscriberCache>;
+export type FdCacheService = ReturnType<typeof fdCache>;
 
 export const WorkbenchCacheService = (cache: ICacheService) => {
     const transactionalCache = createTransactionalCache(cache);
@@ -552,12 +636,14 @@ export const WorkbenchCacheService = (cache: ICacheService) => {
     const txnBusinessCache = createTxnBusinessCache(cache);
     const flowStatusCacheService = flowStatusCache(cache);
     const subscriberCacheService = subscriberCache(cache);
+    const fdCacheService = fdCache(cache);
     return {
         TransactionalCacheService: () => transactionalCache,
         NpSessionalCacheService: () => sessionalCache,
         TxnBusinessCacheService: () => txnBusinessCache,
         FlowStatusCacheService: () => flowStatusCacheService,
         SubscriberCacheService: () => subscriberCacheService,
+        FdCacheService: () => fdCacheService,
     };
 };
 
