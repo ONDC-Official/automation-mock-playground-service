@@ -208,3 +208,65 @@ describe('FdEngineUnavailableError', () => {
         expect(err.message).toContain('@ondc/fd-contract');
     });
 });
+
+describe('FD engine state lock', () => {
+    /** The mock cache, plus the atomic primitives Redis gives the real one. */
+    function lockingCache() {
+        const base = createCache('mock');
+        const raw = new Map<string, string>();
+        return Object.assign(base, {
+            async setIfAbsent(k: string, v: string) {
+                if (raw.has(k)) return false;
+                raw.set(k, v);
+                return true;
+            },
+            async deleteIfValue(k: string, v: string) {
+                if (raw.get(k) !== v) return false;
+                raw.delete(k);
+                return true;
+            },
+            raw,
+        });
+    }
+
+    beforeEach(() => {
+        process.env.FD_SIGNING_PRIVATE_KEY = 'priv';
+        process.env.FD_UNIQUE_KEY_ID = 'ukid-1';
+    });
+
+    it('a second writer waits until the first saves, so neither update is lost', async () => {
+        const cache0 = lockingCache();
+        const cache = WorkbenchCacheService(cache0);
+        const first = await openFdTransaction(cache, key);
+        expect(cache0.raw.size).toBe(1);
+        let secondOpened = false;
+        const second = openFdTransaction(cache, key).then(t => {
+            secondOpened = true;
+            return t;
+        });
+        await new Promise(r => setTimeout(r, 60));
+        expect(secondOpened).toBe(false);
+        await first.observe({ body: {}, action: 'a1', method: 'POST' });
+        await first.save();
+        const txn2 = await second;
+        await txn2.observe({ body: {}, action: 'a2', method: 'POST' });
+        await txn2.save();
+        expect(cache0.raw.size).toBe(0);
+        const stored = await cache
+            .FdCacheService()
+            .getEngineState('txn-1', key.subscriberUrl);
+        expect(JSON.parse(stored as string).seen).toEqual(['a1', 'a2']);
+    });
+
+    it('release() lets go without saving, and is idempotent', async () => {
+        const cache0 = lockingCache();
+        const cache = WorkbenchCacheService(cache0);
+        const txn = await openFdTransaction(cache, key);
+        await txn.release();
+        await txn.release();
+        expect(cache0.raw.size).toBe(0);
+        const again = await openFdTransaction(cache, key);
+        await again.save();
+        expect(cache0.raw.size).toBe(0);
+    });
+});

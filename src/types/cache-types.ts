@@ -8,6 +8,9 @@ export const ApiDataSchema = z.object({
     messageId: z.string(),
     response: z.unknown(),
     timestamp: z.string(),
+    /** FD only (the recorder sets them): the request a callback answers, and a replay flag. */
+    inReplyTo: z.string().optional(),
+    fdReplay: z.boolean().optional(),
 });
 
 export const FormApiTypeSchema = z.object({

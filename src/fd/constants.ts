@@ -16,10 +16,18 @@ export const FD_HEADERS = {
     method: 'X-Pwb-Fd-Method',
     path: 'X-Pwb-Fd-Path',
     replay: 'X-Pwb-Fd-Replay',
+    /** On a response: the FD-PWB code of the workbench's own refusal (not the NP's answer). */
+    gateError: 'X-Pwb-Fd-Gate-Error',
 } as const;
 
 /** Engine state and the inbound store live as long as the other transaction keys. */
 export const FD_STATE_TTL_SECONDS = 5 * 60 * 60;
+
+/** The engine-state lock expires on its own after this, should its holder die. */
+export const FD_STATE_LOCK_TTL_MS = 15_000;
+
+/** How long a caller waits for the engine-state lock before opening the state anyway. */
+export const FD_STATE_LOCK_WAIT_MS = 15_000;
 
 /** Session-data key the GENERATE job puts the engine's draft under. */
 export const FD_DRAFT_SESSION_KEY = 'fd_draft';

@@ -25,8 +25,74 @@ import {
     FdInbound,
     FdObservation,
     FdRouteInfo,
+    FdScenario,
+    getFdRoute,
     openFdTransaction,
 } from './engine';
+
+/**
+ * The scenario of the flow step that will answer an NP's asynchronous request: the first
+ * pending step of the request's callback action. The engine applies it when it decides the
+ * request (a refusal the step forces must not take effect as an acceptance first). Looked up
+ * by the callback step, not by the request's own step: the recorder may already have marked
+ * the request's step complete.
+ */
+async function answeringScenario(
+    ctx: FlowContext,
+    route: FdRouteInfo | undefined,
+    deps: {
+        workbenchCache: WorkbenchCacheServiceType;
+        mockRunnerCache?: MockRunnerConfigCache;
+    }
+): Promise<FdScenario | undefined> {
+    if (!route || route.kind !== 'request' || !route.callback) return undefined;
+    if (!deps.mockRunnerCache) return undefined;
+    try {
+        const logMeta = {
+            transactionId: ctx.transactionId,
+            action: route.action,
+        };
+        const [flowStatus, sessionData] = await Promise.all([
+            deps.workbenchCache
+                .FlowStatusCacheService()
+                .getFlowStatus(ctx.transactionId, ctx.subscriberUrl, logMeta),
+            deps.workbenchCache
+                .TxnBusinessCacheService()
+                .getMockSessionData(
+                    ctx.transactionId,
+                    ctx.subscriberUrl,
+                    ctx.sessionId
+                ),
+        ]);
+        const flowMap = getFlowCompleteStatus(
+            ctx.transactionData,
+            ctx.flow,
+            flowStatus.status,
+            sessionData,
+            undefined,
+            ctx.domain
+        );
+        const answer = flowMap.sequence.find(
+            s => s.actionType === route.callback && s.status !== 'COMPLETE'
+        );
+        if (!answer) return undefined;
+        const runner = await deps.mockRunnerCache.getRunnerInstance(
+            ctx.domain,
+            ctx.version,
+            ctx.flowId,
+            ctx.apiSessionCache.usecaseId,
+            ctx.transactionData.sessionId
+        );
+        return fdScenarioOf(runner.getConfig(), answer.actionId);
+    } catch (e) {
+        logger.warning('FD: the answering step could not be looked up', {
+            transactionId: ctx.transactionId,
+            action: route.action,
+            error: (e as Error).message,
+        });
+        return undefined;
+    }
+}
 
 /**
  * Judges an async message with the engine, keeps the state (findings included) and keeps the
@@ -35,14 +101,27 @@ import {
 export async function observeIncomingFd(
     ctx: FlowContext,
     inbound: FdInbound,
-    workbenchCache: WorkbenchCacheServiceType
+    workbenchCache: WorkbenchCacheServiceType,
+    mockRunnerCache?: MockRunnerConfigCache
 ): Promise<FdObservation> {
+    const route = await getFdRoute(ctx.domain, ctx.version, inbound.action);
+    const scenario = await answeringScenario(ctx, route, {
+        workbenchCache,
+        mockRunnerCache,
+    });
     const txn = await openFdTransaction(
         workbenchCache,
         fdKeyFromFlowContext(ctx)
     );
-    const observation = await txn.observe(inbound);
-    await txn.save();
+    let observation: FdObservation;
+    try {
+        observation = await txn.observe(
+            scenario ? { ...inbound, scenario } : inbound
+        );
+        await txn.save();
+    } finally {
+        await txn.release();
+    }
     logFdFindings(observation.findings, {
         transactionId: ctx.transactionId,
         action: inbound.action,
@@ -119,37 +198,6 @@ export async function answerFdSync(
         messageId: requestMessageId,
     };
 
-    const txn = await openFdTransaction(
-        workbenchCache,
-        fdKeyFromFlowContext(ctx)
-    );
-    const observation = await txn.observe(inbound);
-    logFdFindings(observation.findings, {
-        ...logMeta,
-        replayOf: observation.replayOf,
-    });
-
-    if (observation.replayOf) {
-        const original = txn.replayFor(observation.replayOf);
-        if (original) {
-            await txn.save();
-            logger.info('FD SYNC: replayed request, answering as before', {
-                ...logMeta,
-                replayOf: observation.replayOf,
-            });
-            return {
-                httpStatus: 200,
-                body: original.body,
-                advance: false,
-                requestMessageId,
-            };
-        }
-        logger.warning(
-            'FD SYNC: replayed request with no stored answer; drafting one',
-            { ...logMeta, replayOf: observation.replayOf }
-        );
-    }
-
     const txnCache = workbenchCache.TxnBusinessCacheService();
     const [flowStatus, sessionData] = await Promise.all([
         workbenchCache
@@ -174,79 +222,136 @@ export async function answerFdSync(
         action
     );
 
-    const mockRunner = step
-        ? await mockRunnerCache.getRunnerInstance(
-              ctx.domain,
-              ctx.version,
-              ctx.flowId,
-              ctx.apiSessionCache.usecaseId,
-              ctx.transactionData.sessionId
-          )
-        : undefined;
-    const runnerConfig = mockRunner?.getConfig();
-
-    // Save the request as /manual does for any NP message, so the script sees it.
-    let scriptSession = sessionData;
-    if (step && runnerConfig) {
-        await txnCache.saveMockSessionData(
-            ctx.transactionId,
-            ctx.subscriberUrl,
-            inbound.body,
-            { 'save-data': getSaveDataConfig(runnerConfig, step.actionId) },
-            ctx.sessionId
-        );
-        scriptSession = await txnCache.getMockSessionData(
-            ctx.transactionId,
-            ctx.subscriberUrl,
-            ctx.sessionId
-        );
-    } else {
-        logger.warning(
-            'FD SYNC: no pending flow step for this action; answering with the engine draft alone',
-            logMeta
-        );
-    }
-
-    const draft = await txn.draft({
-        action,
-        answering: inbound,
-        scenario:
-            step && runnerConfig
-                ? fdScenarioOf(runnerConfig, step.actionId)
-                : undefined,
-    });
-
-    let body: unknown = draft.body;
-    if (step && mockRunner) {
-        const gen = await mockRunner.runGeneratePayloadWithSession(
-            step.actionId,
-            { ...scriptSession, [FD_DRAFT_SESSION_KEY]: draft.body }
-        );
-        if (gen.success === false || gen.result === undefined) {
-            logger.error(
-                'FD SYNC: the step generate script failed; answering with the engine draft',
-                { ...logMeta, actionId: step.actionId },
-                gen.error
+    // Looked up before the request is decided, for its scenario. A runner that cannot be
+    // loaded must not keep a replay from its stored answer: it is logged, and the answer is
+    // then the engine's draft alone.
+    let mockRunner:
+        | Awaited<ReturnType<MockRunnerConfigCache['getRunnerInstance']>>
+        | undefined;
+    if (step) {
+        try {
+            mockRunner = await mockRunnerCache.getRunnerInstance(
+                ctx.domain,
+                ctx.version,
+                ctx.flowId,
+                ctx.apiSessionCache.usecaseId,
+                ctx.transactionData.sessionId
             );
-        } else {
-            body = gen.result;
+        } catch (e) {
+            logger.error(
+                'FD SYNC: the flow step runner could not be loaded; answering with the engine draft',
+                { ...logMeta, actionId: step.actionId },
+                e
+            );
         }
     }
-    body = stripFdScenario(body);
+    const runnerConfig = mockRunner?.getConfig();
+    // The step's scenario is applied when the request is decided and when it is answered.
+    const scenario =
+        step && runnerConfig
+            ? fdScenarioOf(runnerConfig, step.actionId)
+            : undefined;
 
-    txn.sent({
-        action,
-        body,
-        pathParams: draft.pathParams,
-        answering: requestMessageId,
-    });
-    await txn.save();
+    const txn = await openFdTransaction(
+        workbenchCache,
+        fdKeyFromFlowContext(ctx)
+    );
+    try {
+        return await answerLocked();
+    } finally {
+        await txn.release();
+    }
 
-    return {
-        httpStatus: draft.httpStatus ?? 200,
-        body,
-        advance: true,
-        requestMessageId,
-        stepActionId: step?.actionId,
-    };
+    async function answerLocked(): Promise<FdSyncAnswer> {
+        const observation = await txn.observe(
+            scenario ? { ...inbound, scenario } : inbound
+        );
+        logFdFindings(observation.findings, {
+            ...logMeta,
+            replayOf: observation.replayOf,
+        });
+
+        if (observation.replayOf) {
+            const original = txn.replayFor(observation.replayOf);
+            if (original) {
+                await txn.save();
+                logger.info('FD SYNC: replayed request, answering as before', {
+                    ...logMeta,
+                    replayOf: observation.replayOf,
+                });
+                return {
+                    httpStatus: 200,
+                    body: original.body,
+                    advance: false,
+                    requestMessageId,
+                };
+            }
+            logger.warning(
+                'FD SYNC: replayed request with no stored answer; drafting one',
+                { ...logMeta, replayOf: observation.replayOf }
+            );
+        }
+
+        // Save the request as /manual does for any NP message, so the script sees it.
+        let scriptSession = sessionData;
+        if (step && runnerConfig) {
+            await txnCache.saveMockSessionData(
+                ctx.transactionId,
+                ctx.subscriberUrl,
+                inbound.body,
+                { 'save-data': getSaveDataConfig(runnerConfig, step.actionId) },
+                ctx.sessionId
+            );
+            scriptSession = await txnCache.getMockSessionData(
+                ctx.transactionId,
+                ctx.subscriberUrl,
+                ctx.sessionId
+            );
+        } else {
+            logger.warning(
+                'FD SYNC: no pending flow step for this action; answering with the engine draft alone',
+                logMeta
+            );
+        }
+
+        const draft = await txn.draft({
+            action,
+            answering: inbound,
+            scenario,
+        });
+
+        let body: unknown = draft.body;
+        if (step && mockRunner) {
+            const gen = await mockRunner.runGeneratePayloadWithSession(
+                step.actionId,
+                { ...scriptSession, [FD_DRAFT_SESSION_KEY]: draft.body }
+            );
+            if (gen.success === false || gen.result === undefined) {
+                logger.error(
+                    'FD SYNC: the step generate script failed; answering with the engine draft',
+                    { ...logMeta, actionId: step.actionId },
+                    gen.error
+                );
+            } else {
+                body = gen.result;
+            }
+        }
+        body = stripFdScenario(body);
+
+        txn.sent({
+            action,
+            body,
+            pathParams: draft.pathParams,
+            answering: requestMessageId,
+        });
+        await txn.save();
+
+        return {
+            httpStatus: draft.httpStatus ?? 200,
+            body,
+            advance: true,
+            requestMessageId,
+            stepActionId: step?.actionId,
+        };
+    }
 }

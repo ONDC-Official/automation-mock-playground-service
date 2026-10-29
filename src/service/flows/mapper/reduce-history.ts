@@ -8,6 +8,8 @@ export function reduceApiDataList(
     domain?: string
 ): ApiHistory[] {
     const map = new Map<string, ApiHistory>();
+    const fd = isFdDomain(domain);
+    let replays = 0;
 
     for (const vagueItem of data) {
         if (vagueItem.entryType === 'FORM') {
@@ -26,7 +28,14 @@ export function reduceApiDataList(
             }
         } else {
             const item = vagueItem;
-            const key = `${item.action}|${item.messageId}`;
+            // FD: a byte-identical re-send the workbench let through (fdReplay) is an entry of
+            // its own, so a flow step that re-sends a message (a retry) can map to it; a
+            // redelivery with no step of its own is folded back into the step that recorded
+            // the message (fdReplayResolver).
+            const replay = fd && item.fdReplay === true;
+            const key = replay
+                ? `${item.action}|${item.messageId}|replay#${replays++}`
+                : `${item.action}|${item.messageId}`;
             if (!map.has(key)) {
                 map.set(key, {
                     entryType: 'API',
@@ -44,6 +53,7 @@ export function reduceApiDataList(
                             response: item.response,
                         },
                     ],
+                    ...(replay && { fdReplay: true }),
                 });
             } else {
                 const existingItem = map.get(key)! as ReducedApiData;

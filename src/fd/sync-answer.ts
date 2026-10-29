@@ -39,16 +39,21 @@ export async function handleFdSyncAnswer(
         );
     } else {
         const txn = await openFdTransaction(deps.workbenchCache, key);
-        const observation = await txn.observe({
-            body: response.body,
-            action: actionOf(response.body) ?? request.action,
-            method: sync.method,
-            pathParams: request.pathParams,
-            httpStatus: response.status,
-            receivedAt: new Date().toISOString(),
-            requestMessageId: sync.requestMessageId,
-        });
-        await txn.save();
+        let observation;
+        try {
+            observation = await txn.observe({
+                body: response.body,
+                action: actionOf(response.body) ?? request.action,
+                method: sync.method,
+                pathParams: request.pathParams,
+                httpStatus: response.status,
+                receivedAt: new Date().toISOString(),
+                requestMessageId: sync.requestMessageId,
+            });
+            await txn.save();
+        } finally {
+            await txn.release();
+        }
         logFdFindings(observation.findings, meta);
 
         const sessionCache = deps.workbenchCache.TxnBusinessCacheService();

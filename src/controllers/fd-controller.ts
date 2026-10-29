@@ -92,7 +92,8 @@ export function fdControllers(
                 const observation = await observeIncomingFd(
                     ctx,
                     inbound,
-                    workbenchCache
+                    workbenchCache,
+                    mockRunnerCache
                 );
                 if (observation.replayOf) {
                     logger.info(

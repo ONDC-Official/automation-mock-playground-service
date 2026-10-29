@@ -14,6 +14,7 @@ import {
     createExtrasResolver,
     ExtrasIndex,
 } from './resolvers/extras-resolver';
+import { fdReplayResolver } from './resolvers/fd-replay-resolver';
 import { missedResolver } from './resolvers/missed-resolver';
 import {
     Resolver,
@@ -65,6 +66,7 @@ export class FlowMapBuilder {
         this.resolvers = [
             sequenceResolver,
             createExtrasResolver(this.extrasIndex, extrasState),
+            fdReplayResolver,
             missedResolver,
         ];
     }

@@ -492,3 +492,184 @@ describe('SEND job: an accepted FD send moves the flow on', () => {
         expect(mockedAdvance).not.toHaveBeenCalled();
     });
 });
+
+describe('M6 scenarios in the GENERATE job', () => {
+    const generate = async (
+        scenario: Record<string, unknown>,
+        draftBody: Record<string, unknown>,
+        inputs?: unknown
+    ) => {
+        const { workbenchCache, ctx } = await seedFd('BPP');
+        const txn = fakeFdTxn({ draftBody });
+        mockedOpen.mockResolvedValue(txn);
+        mockedGetRoute.mockResolvedValue(
+            route({ action: 'nominee_register', mode: 'ASYNC_ACK_CALLBACK' })
+        );
+        const runner = fakeRunner(
+            [
+                {
+                    action_id: 'nominee_register_2',
+                    mock: { defaultPayload: { fdScenario: scenario } },
+                },
+            ],
+            (_id, session) => session.fd_draft as object
+        );
+        const result = (await createGeneratePayloadJobHandler(workbenchCache, {
+            getRunnerInstance: jest.fn(async () => runner),
+        } as unknown as MockRunnerConfigCache)({
+            flowContext: ctx,
+            actionMeta: mappedStep('nominee_register_2', 'BAP'),
+            inputs,
+        })) as GenerateMockPayloadJobResult;
+        return { txn, result, workbenchCache };
+    };
+
+    it('retry: the engine’s re-send is recorded as a replay and sent as the original text', async () => {
+        const original = '{"context":{"message_id":"m-nr-1"},  "message":{}}';
+        const { workbenchCache, ctx } = await seedFd('BPP');
+        await workbenchCache
+            .FdCacheService()
+            .setSentRaw(TXN_ID, NP_URL, 'm-nr-1', original, 60);
+        const txn = fakeFdTxn({
+            draftBody: { context: { message_id: 'm-nr-1' }, message: {} },
+        });
+        mockedOpen.mockResolvedValue(txn);
+        mockedGetRoute.mockResolvedValue(route({ action: 'nominee_register' }));
+        const result = (await createGeneratePayloadJobHandler(workbenchCache, {
+            getRunnerInstance: jest.fn(async () =>
+                fakeRunner(
+                    [
+                        {
+                            action_id: 'nominee_register_2',
+                            mock: {
+                                defaultPayload: { fdScenario: { retry: true } },
+                            },
+                        },
+                    ],
+                    (_id, session) => session.fd_draft as object
+                )
+            ),
+        } as unknown as MockRunnerConfigCache)({
+            flowContext: ctx,
+            actionMeta: mappedStep('nominee_register_2', 'BAP'),
+        })) as GenerateMockPayloadJobResult;
+        expect(txn.sent).toHaveBeenCalledWith(
+            expect.objectContaining({ replay: true })
+        );
+        expect(result.fd).toEqual({
+            pathParams: {},
+            resend: true,
+            rawBody: original,
+        });
+        expect(txn.release).toHaveBeenCalled();
+    });
+
+    it('deliveries: the send job is told to deliver n copies', async () => {
+        const { result } = await generate(
+            { deliveries: 5 },
+            { context: { message_id: 'm-1' } }
+        );
+        expect(result.fd).toEqual({ pathParams: {}, deliveries: 5 });
+    });
+
+    it('userInputs: the scenario’s inputs reach the draft, under the step’s own', async () => {
+        const { txn } = await generate(
+            { userInputs: { requote: true, a: 1 } },
+            { context: { message_id: 'm-1' } },
+            { a: 2 }
+        );
+        expect(txn.draft).toHaveBeenCalledWith(
+            expect.objectContaining({ userInputs: { requote: true, a: 2 } })
+        );
+    });
+});
+
+describe('M6 scenarios in the SEND job: deliveries and receipts', () => {
+    const ackOf = (status = 'ACK') => ({
+        context: { transaction_id: TXN_ID, message_id: 'm-db-1' },
+        message: { ack: { status } },
+    });
+    const payload = {
+        context: { transaction_id: TXN_ID, message_id: 'm-db-1' },
+        message: { deposit: {} },
+    };
+    const send = (
+        deps: Parameters<typeof createApiServiceRequestJobHandler>[0],
+        fd: object
+    ) =>
+        createApiServiceRequestJobHandler(deps)({
+            action: 'on_deposit_booked',
+            domain: FD,
+            version: FD_VERSION,
+            payload,
+            subscriberUrl: NP_URL,
+            fd: { pathParams: {}, ...fd },
+        });
+
+    it('delivers the same text five times at once and judges every receipt', async () => {
+        const { workbenchCache } = await seedFd('BAP');
+        const txn = fakeFdTxn();
+        mockedOpen.mockResolvedValue(txn);
+        const post = jest
+            .spyOn(axios, 'post')
+            .mockResolvedValue({ status: 200, data: ackOf(), headers: {} });
+        const queue = queueSpy();
+        await send({ workbenchCache, queue }, { deliveries: 5 });
+
+        expect(post).toHaveBeenCalledTimes(5);
+        const bodies = new Set(post.mock.calls.map(c => c[1]));
+        expect(bodies).toEqual(new Set([JSON.stringify(payload)]));
+        // The first delivery was recorded at the draft; four more are re-sends.
+        expect(txn.sent).toHaveBeenCalledTimes(4);
+        expect(txn.sent).toHaveBeenCalledWith(
+            expect.objectContaining({
+                action: 'on_deposit_booked',
+                replay: true,
+            })
+        );
+        expect(txn.observe).toHaveBeenCalledTimes(5);
+        expect(txn.observe).toHaveBeenCalledWith(
+            expect.objectContaining({
+                action: 'on_deposit_booked',
+                body: ackOf(),
+                httpStatus: 200,
+            })
+        );
+        expect(txn.calls.slice(-1)).toEqual(['save']);
+        expect(mockedAdvance).toHaveBeenCalledTimes(1);
+    });
+
+    it("a refusal by the workbench's own edge is not judged as the NP's answer", async () => {
+        const { workbenchCache } = await seedFd('BAP');
+        const txn = fakeFdTxn();
+        mockedOpen.mockResolvedValue(txn);
+        jest.spyOn(axios, 'post').mockResolvedValue({
+            status: 200,
+            data: ackOf('NACK'),
+            headers: { 'x-pwb-fd-gate-error': 'FD-PWB-0040' },
+        });
+        await send({ workbenchCache, queue: queueSpy() }, {});
+        expect(txn.observe).not.toHaveBeenCalled();
+        expect(txn.calls).toEqual(['save']);
+    });
+
+    it('a re-send (retry step) carries X-Pwb-Fd-Replay, sends the stored text, is judged and moves the flow on', async () => {
+        const { workbenchCache } = await seedFd('BAP');
+        const txn = fakeFdTxn();
+        mockedOpen.mockResolvedValue(txn);
+        const original = '{"context":{"transaction_id":"x"}}';
+        const post = jest
+            .spyOn(axios, 'post')
+            .mockResolvedValue({ status: 202, data: ackOf(), headers: {} });
+        await send(
+            { workbenchCache, queue: queueSpy() },
+            { resend: true, rawBody: original }
+        );
+        expect(post.mock.calls[0][1]).toBe(original);
+        expect(post.mock.calls[0][2]?.headers).toMatchObject({
+            'X-Pwb-Fd-Replay': '1',
+        });
+        expect(txn.observe).toHaveBeenCalledTimes(1);
+        expect(mockedAdvance).toHaveBeenCalledTimes(1);
+    });
+});

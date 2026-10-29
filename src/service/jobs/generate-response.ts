@@ -109,6 +109,10 @@ export function createGeneratePayloadJobHandler(
         const resetStatusToAvailable = () =>
             resetFlowStatusToAvailable(workbenchCache, flowContext, actionMeta);
 
+        // FD: the engine drafts the message; the step script returns
+        // `sessionData.fd_draft`, possibly tweaked. The draft holds the transaction's
+        // engine-state lock until it is finalised (or released below, on any failure).
+        let fdOutgoing: FdOutgoing | undefined;
         try {
             const mockRunner = await configCache.getRunnerInstance(
                 flowContext.domain,
@@ -140,9 +144,6 @@ export function createGeneratePayloadJobHandler(
                 txnMockData.finvuUrl = finvuUrl;
             }
 
-            // FD: the engine drafts the message; the step script returns
-            // `sessionData.fd_draft`, possibly tweaked.
-            let fdOutgoing: FdOutgoing | undefined;
             if (isFdDomain(flowContext.domain)) {
                 fdOutgoing = await prepareFdOutgoing({
                     flowContext,
@@ -270,6 +271,8 @@ export function createGeneratePayloadJobHandler(
             logger.error('Error generating mock payload', logMeta, error);
             await resetStatusToAvailable();
             throw error;
+        } finally {
+            await fdOutgoing?.txn.release();
         }
     };
 }

@@ -142,7 +142,10 @@ describe('FD /manual/:action — SYNC answered inline', () => {
         expect(next).not.toHaveBeenCalled();
         expect(txn.calls).toEqual(['observe', 'draft', 'sent', 'save']);
 
-        const inbound = txn.observe.mock.calls[0][0];
+        // The step's scenario is applied when the request is decided, and again to the answer.
+        const { scenario: decidedWith, ...inbound } =
+            txn.observe.mock.calls[0][0];
+        expect(decidedWith).toEqual({ expectError: 'FD-QUO-0001' });
         expect(inbound).toMatchObject({
             action: 'quote_request',
             method: 'POST',

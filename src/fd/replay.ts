@@ -43,12 +43,13 @@ export async function replayFdCallback(
     const transaction = await deps.workbenchCache
         .TransactionalCacheService()
         .getTransactionData(body.transaction_id, body.subscriber_url);
-    if (!transaction.sessionId) {
+    const sessionId = transaction.sessionId;
+    if (!sessionId) {
         return { replayed: false, reason: 'transaction has no session' };
     }
     const session = await deps.workbenchCache
         .NpSessionalCacheService()
-        .getSessionData(transaction.sessionId);
+        .getSessionData(sessionId);
 
     const txn = await openFdTransaction(
         deps.workbenchCache,
@@ -60,66 +61,78 @@ export async function replayFdCallback(
             body.version
         )
     );
-    const original = txn.replayFor(body.message_id);
-    if (!original) {
-        logger.warning('FD replay: no message was sent for this request', meta);
-        return {
-            replayed: false,
-            reason: `no callback was sent for message_id ${body.message_id}`,
+    try {
+        return await replayLocked();
+    } finally {
+        await txn.release();
+    }
+
+    async function replayLocked(): Promise<FdReplayResult> {
+        const original = txn.replayFor(body.message_id);
+        if (!original) {
+            logger.warning(
+                'FD replay: no message was sent for this request',
+                meta
+            );
+            return {
+                replayed: false,
+                reason: `no callback was sent for message_id ${body.message_id}`,
+            };
+        }
+
+        const originalId = (
+            original.body as { context?: { message_id?: unknown } }
+        )?.context?.message_id;
+        const rawBody =
+            typeof originalId === 'string'
+                ? await deps.workbenchCache
+                      .FdCacheService()
+                      .getSentRaw(
+                          body.transaction_id,
+                          body.subscriber_url,
+                          originalId
+                      )
+                : null;
+        if (rawBody === null) {
+            logger.warning(
+                'FD replay: the original text is not kept; re-sending the stored body, which the API service may refuse as not byte-identical',
+                meta
+            );
+        }
+
+        const job: ApiServiceRequestJobParams = {
+            action: original.action,
+            domain: body.domain,
+            version: body.version,
+            payload: original.body,
+            subscriberUrl: body.subscriber_url,
+            queryParams: {
+                subscriber_url: body.subscriber_url,
+                flow_id: transaction.flowId,
+                session_id: sessionId as string,
+            },
+            fd: {
+                pathParams: original.pathParams ?? {},
+                replay: true,
+                ...(rawBody !== null && { rawBody }),
+            },
         };
-    }
+        const jobId = await deps.queue.enqueue(SEND_TO_API_SERVICE_JOB, job);
 
-    const originalId = (original.body as { context?: { message_id?: unknown } })
-        ?.context?.message_id;
-    const rawBody =
-        typeof originalId === 'string'
-            ? await deps.workbenchCache
-                  .FdCacheService()
-                  .getSentRaw(
-                      body.transaction_id,
-                      body.subscriber_url,
-                      originalId
-                  )
-            : null;
-    if (rawBody === null) {
-        logger.warning(
-            'FD replay: the original text is not kept; re-sending the stored body, which the API service may refuse as not byte-identical',
-            meta
-        );
-    }
-
-    const job: ApiServiceRequestJobParams = {
-        action: original.action,
-        domain: body.domain,
-        version: body.version,
-        payload: original.body,
-        subscriberUrl: body.subscriber_url,
-        queryParams: {
-            subscriber_url: body.subscriber_url,
-            flow_id: transaction.flowId,
-            session_id: transaction.sessionId,
-        },
-        fd: {
-            pathParams: original.pathParams ?? {},
+        // Recorded as a replay in the engine state, for the report.
+        txn.sent({
+            action: original.action,
+            body: original.body,
+            pathParams: original.pathParams,
+            answering: body.message_id,
             replay: true,
-            ...(rawBody !== null && { rawBody }),
-        },
-    };
-    const jobId = await deps.queue.enqueue(SEND_TO_API_SERVICE_JOB, job);
-
-    // Recorded as a replay in the engine state, for the report.
-    txn.sent({
-        action: original.action,
-        body: original.body,
-        pathParams: original.pathParams,
-        answering: body.message_id,
-        replay: true,
-    });
-    await txn.save();
-    logger.info('FD replay: original callback re-sent', {
-        ...meta,
-        callback: original.action,
-        jobId,
-    });
-    return { replayed: true, action: original.action, jobId };
+        });
+        await txn.save();
+        logger.info('FD replay: original callback re-sent', {
+            ...meta,
+            callback: original.action,
+            jobId,
+        });
+        return { replayed: true, action: original.action, jobId };
+    }
 }

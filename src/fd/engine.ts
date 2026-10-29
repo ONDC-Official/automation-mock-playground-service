@@ -11,17 +11,23 @@
  * - `createEngine({spec, routes, identity, role, counterparty})`, one engine per
  *   (domain, version, role), cached; spec from `FD_SPEC`, routes from the config service or
  *   `FD_ROUTE_TABLE` (see fd-config.ts), identity from env, role from the session's `npType`;
- * - per transaction, `openFdTransaction` loads the state from Redis DB 0
- *   (`FD_ENGINE_STATE::<transactionId>::<subscriberUrl>`, 5 h) with `deserialiseFdState`, or
- *   starts one with `engine.initialState(transactionId)`; `observe`, `draft`, `sent` and
- *   `replayFor` call the engine's; `save()` writes the state back with `serialiseFdState`;
+ * - per transaction, `openFdTransaction` takes the transaction's lock, then loads the state
+ *   from Redis DB 0 (`FD_ENGINE_STATE::<transactionId>::<subscriberUrl>`, 5 h) with
+ *   `deserialiseFdState`, or starts one with `engine.initialState(transactionId)`; `observe`,
+ *   `draft`, `sent` and `replayFor` call the engine's; `save()` writes the state back with
+ *   `serialiseFdState` and releases the lock; `release()` releases it without saving;
  * - the engine keeps `observe`'s findings in the state it returns, so they persist with it.
  */
+import { randomUUID } from 'crypto';
 import { InternalServerError } from '../errors/custom-errors';
 import logger from '../utils/logger';
 import { fdRegistryKeyLookup } from './registry';
 import { WorkbenchCacheServiceType } from '../service/cache/workbench-cache';
-import { FD_STATE_TTL_SECONDS } from './constants';
+import {
+    FD_STATE_LOCK_TTL_MS,
+    FD_STATE_LOCK_WAIT_MS,
+    FD_STATE_TTL_SECONDS,
+} from './constants';
 import {
     FdConfigError,
     FdIdentity,
@@ -49,6 +55,11 @@ export interface FdInbound {
     receivedAt?: string;
     /** For a SYNC answer: the workbench request it answers. */
     requestMessageId?: string;
+    /**
+     * Issuer role: the scenario of the step that answers this request, applied when the engine
+     * decides it (a forced refusal never takes effect as an acceptance would).
+     */
+    scenario?: FdScenario;
 }
 
 export interface FdFinding {
@@ -66,6 +77,12 @@ export interface FdScenario {
     expectError?: string;
     mutate?: string[];
     withhold?: boolean;
+    /** Re-send an earlier message unchanged (the engine returns it; the stored text is sent). */
+    retry?: boolean | string;
+    /** Deliver the message this many times concurrently. */
+    deliveries?: number;
+    /** Draft-request inputs, under the step's own inputs. */
+    userInputs?: Record<string, unknown>;
     [k: string]: unknown;
 }
 
@@ -284,11 +301,74 @@ export interface FdTransaction {
     draft(req: FdDraftRequest): Promise<FdDraft>;
     sent(msg: FdSentMessage): void;
     replayFor(requestMessageId: string): FdStoredMessage | undefined;
-    /** Writes the state back to Redis (5 h TTL). */
+    /** Writes the state back to Redis (5 h TTL) and releases the transaction's lock. */
     save(): Promise<void>;
+    /** Releases the lock without saving. Idempotent; a no-op after `save()`. */
+    release(): Promise<void>;
 }
 
-/** Loads (or starts) the engine state of one FD transaction. */
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Takes the transaction's engine-state lock: every reader that writes the state back holds
+ * it, so two writers (an NP's request and the acknowledgement of the workbench's own send,
+ * say) never lose each other's update. A holder that died lets go when the lock expires; past
+ * the wait, the state is opened anyway, with a warning, rather than stall the flow.
+ */
+async function lockFdState(
+    workbenchCache: WorkbenchCacheServiceType,
+    key: FdTransactionKey
+): Promise<() => Promise<void>> {
+    const fdCache = workbenchCache.FdCacheService();
+    const token = randomUUID();
+    const deadline = Date.now() + FD_STATE_LOCK_WAIT_MS;
+    for (;;) {
+        if (
+            await fdCache.tryLockEngineState(
+                key.transactionId,
+                key.subscriberUrl,
+                token,
+                FD_STATE_LOCK_TTL_MS
+            )
+        ) {
+            break;
+        }
+        if (Date.now() >= deadline) {
+            logger.warning(
+                'FD: the engine state is still locked; opening it anyway',
+                {
+                    transactionId: key.transactionId,
+                    waitedMs: FD_STATE_LOCK_WAIT_MS,
+                }
+            );
+            return async () => undefined;
+        }
+        await sleep(20);
+    }
+    let held = true;
+    return async () => {
+        if (!held) return;
+        held = false;
+        try {
+            await fdCache.unlockEngineState(
+                key.transactionId,
+                key.subscriberUrl,
+                token
+            );
+        } catch (e) {
+            logger.error(
+                'FD: could not release the engine-state lock; it expires on its own',
+                { transactionId: key.transactionId },
+                e
+            );
+        }
+    };
+}
+
+/**
+ * Loads (or starts) the engine state of one FD transaction, holding its lock until `save()`
+ * or `release()`.
+ */
 export async function openFdTransaction(
     workbenchCache: WorkbenchCacheServiceType,
     key: FdTransactionKey
@@ -297,67 +377,85 @@ export async function openFdTransaction(
     const engine = await engineFor(key.domain, key.version, role);
     const mod = loadContract();
     const fdCache = workbenchCache.FdCacheService();
-
-    const deserialise = (text: string): FdState => {
-        if (mod.deserialiseFdState) return mod.deserialiseFdState(text);
-        if (engine.deserialise) return engine.deserialise(text);
-        throw new FdEngineUnavailableError('no deserialiseFdState export');
-    };
-    const serialise = (s: FdState): string => {
-        if (mod.serialiseFdState) return mod.serialiseFdState(s);
-        if (engine.serialise) return engine.serialise(s);
-        throw new FdEngineUnavailableError('no serialiseFdState export');
-    };
-
-    const stored = await fdCache.getEngineState(
-        key.transactionId,
-        key.subscriberUrl
-    );
-    let state: FdState;
-    if (stored) {
-        state = deserialise(stored);
-    } else if (engine.initialState) {
-        state = engine.initialState(key.transactionId);
-    } else if (mod.emptyFdState) {
-        state = mod.emptyFdState(key.transactionId);
-    } else {
-        throw new FdEngineUnavailableError('no initialState / emptyFdState');
+    const release = await lockFdState(workbenchCache, key);
+    try {
+        return await openLocked();
+    } catch (e) {
+        await release();
+        throw e;
     }
 
-    return {
-        role,
-        async observe(msg) {
-            const out = await engine.observe(state, msg);
-            state = out.state;
-            return { findings: out.findings ?? [], replayOf: out.replayOf };
-        },
-        async draft(req) {
-            const out = await engine.draft(state, {
-                ...req,
-                ...(key.counterparty ? { counterparty: key.counterparty } : {}),
-            });
-            state = out.state;
-            return {
-                body: out.body,
-                pathParams: out.pathParams ?? {},
-                httpStatus: out.httpStatus,
-            };
-        },
-        sent(msg) {
-            state = engine.sent(state, msg);
-        },
-        replayFor(requestMessageId) {
-            return engine.replayFor(state, requestMessageId);
-        },
-        async save() {
-            await fdCache.setEngineState(
-                key.transactionId,
-                key.subscriberUrl,
-                serialise(state),
-                FD_STATE_TTL_SECONDS
+    async function openLocked(): Promise<FdTransaction> {
+        const deserialise = (text: string): FdState => {
+            if (mod.deserialiseFdState) return mod.deserialiseFdState(text);
+            if (engine.deserialise) return engine.deserialise(text);
+            throw new FdEngineUnavailableError('no deserialiseFdState export');
+        };
+        const serialise = (s: FdState): string => {
+            if (mod.serialiseFdState) return mod.serialiseFdState(s);
+            if (engine.serialise) return engine.serialise(s);
+            throw new FdEngineUnavailableError('no serialiseFdState export');
+        };
+
+        const stored = await fdCache.getEngineState(
+            key.transactionId,
+            key.subscriberUrl
+        );
+        let state: FdState;
+        if (stored) {
+            state = deserialise(stored);
+        } else if (engine.initialState) {
+            state = engine.initialState(key.transactionId);
+        } else if (mod.emptyFdState) {
+            state = mod.emptyFdState(key.transactionId);
+        } else {
+            throw new FdEngineUnavailableError(
+                'no initialState / emptyFdState'
             );
-        },
-    };
+        }
+
+        return {
+            role,
+            async observe(msg) {
+                const out = await engine.observe(state, msg);
+                state = out.state;
+                return { findings: out.findings ?? [], replayOf: out.replayOf };
+            },
+            async draft(req) {
+                const out = await engine.draft(state, {
+                    ...req,
+                    ...(key.counterparty
+                        ? { counterparty: key.counterparty }
+                        : {}),
+                });
+                state = out.state;
+                return {
+                    body: out.body,
+                    pathParams: out.pathParams ?? {},
+                    httpStatus: out.httpStatus,
+                };
+            },
+            sent(msg) {
+                state = engine.sent(state, msg);
+            },
+            replayFor(requestMessageId) {
+                return engine.replayFor(state, requestMessageId);
+            },
+            async save() {
+                try {
+                    await fdCache.setEngineState(
+                        key.transactionId,
+                        key.subscriberUrl,
+                        serialise(state),
+                        FD_STATE_TTL_SECONDS
+                    );
+                } finally {
+                    await release();
+                }
+            },
+            release,
+        };
+    }
 }
 
 /** Test hook: forget the loaded package, engines and route indexes. */

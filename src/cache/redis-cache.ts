@@ -61,5 +61,24 @@ export function createRedisCacheService(redisClient: Redis): ICacheService {
             }
             return await redisClient.del(...keys);
         },
+
+        async setIfAbsent(
+            key: string,
+            value: string,
+            ttlMs: number
+        ): Promise<boolean> {
+            const result = await redisClient.set(key, value, 'PX', ttlMs, 'NX');
+            return result === 'OK';
+        },
+
+        async deleteIfValue(key: string, value: string): Promise<boolean> {
+            const result = await redisClient.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                1,
+                key,
+                value
+            );
+            return result === 1;
+        },
     };
 }

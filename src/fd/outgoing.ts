@@ -7,6 +7,12 @@
  * records the final body with `engine.sent` and saves the state.
  *
  * SEND: `fdSendHeaders` adds the internal `X-Pwb-*` headers for the API service's FD module.
+ *
+ * Scenario directives (the step's `fdScenario`, D-4) the playground itself acts on:
+ * - `userInputs`: merged under the step's own inputs into the draft request;
+ * - `retry`: the engine returns the earlier message; it is re-sent as its stored text, so the
+ *   bytes are identical (`FD_SENT_RAW`), and the flow moves on as after any send;
+ * - `deliveries: n`: the send job delivers the same text n times concurrently.
  */
 import { WorkbenchCacheServiceType } from '../service/cache/workbench-cache';
 import { MappedStep } from '../types/mapped-flow-types';
@@ -24,6 +30,7 @@ import {
     FdDraft,
     FdInbound,
     FdRouteInfo,
+    FdScenario,
     FdTransaction,
     FdTransactionKey,
     getFdRoute,
@@ -34,8 +41,15 @@ import {
 export interface FdSendMeta {
     /** `X-Pwb-Fd-Path-Params`: the REST path parameters from the draft. */
     pathParams: Record<string, string>;
-    /** Re-send of a stored message (`X-Pwb-Fd-Replay: 1`). */
+    /** Re-send of a stored message for `/fd/replay` (`X-Pwb-Fd-Replay: 1`); not a flow step. */
     replay?: boolean;
+    /**
+     * A flow step that re-sends an earlier message (scenario `retry`): the stored text, with
+     * `X-Pwb-Fd-Replay: 1`; unlike `replay` it is judged and moves the flow on.
+     */
+    resend?: boolean;
+    /** Deliver the same text this many times concurrently (scenario `deliveries`). */
+    deliveries?: number;
     /** A replay's exact original text, sent unchanged so the body digest matches. */
     rawBody?: string;
     /**
@@ -56,7 +70,12 @@ export interface FdOutgoing {
     route: FdRouteInfo;
     draft: FdDraft;
     answering?: FdInbound;
+    scenario?: FdScenario;
+    workbenchCache: WorkbenchCacheServiceType;
 }
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+    typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Drafts the workbench's next message for a flow step. Throws when FD can't run. */
 export async function prepareFdOutgoing(params: {
@@ -93,17 +112,29 @@ export async function prepareFdOutgoing(params: {
             );
         }
     }
+    const scenario = fdScenarioOf(runnerConfig, actionMeta.actionId);
     const txn = await openFdTransaction(
         workbenchCache,
         fdKeyFromFlowContext(flowContext)
     );
-    const draft = await txn.draft({
-        action: route.action,
-        answering,
-        scenario: fdScenarioOf(runnerConfig, actionMeta.actionId),
-        userInputs: params.inputs,
-    });
-    return { txn, route, draft, answering };
+    try {
+        const draft = await txn.draft({
+            action: route.action,
+            answering,
+            scenario,
+            userInputs: mergeInputs(scenario?.userInputs, params.inputs),
+        });
+        return { txn, route, draft, answering, scenario, workbenchCache };
+    } catch (e) {
+        await txn.release();
+        throw e;
+    }
+}
+
+/** The step's own inputs win over the scenario's `userInputs`. */
+function mergeInputs(fromScenario: unknown, inputs: unknown): unknown {
+    if (!isRecord(fromScenario)) return inputs;
+    return { ...fromScenario, ...(isRecord(inputs) ? inputs : {}) };
 }
 
 /**
@@ -117,15 +148,44 @@ export async function finaliseFdOutgoing(
     actionMeta: MappedStep
 ): Promise<{ payload: unknown; fd: FdSendMeta }> {
     const payload = stripFdScenario(generated);
+    const resend =
+        out.scenario?.retry !== undefined && out.scenario.retry !== false;
     out.txn.sent({
         action: out.route.action,
         body: payload,
         pathParams: out.draft.pathParams,
         answering: out.answering ? messageIdOf(out.answering.body) : undefined,
+        ...(resend && { replay: true }),
     });
     await out.txn.save();
 
     const fd: FdSendMeta = { pathParams: out.draft.pathParams };
+    if (resend) {
+        // The engine keeps bodies as canonical JSON; the original text makes the repeat
+        // byte-identical, as a retry must be.
+        fd.resend = true;
+        const messageId = messageIdOf(payload);
+        const raw = messageId
+            ? await out.workbenchCache
+                  .FdCacheService()
+                  .getSentRaw(
+                      flowContext.transactionId,
+                      flowContext.subscriberUrl,
+                      messageId
+                  )
+            : null;
+        if (raw !== null) fd.rawBody = raw;
+        else {
+            logger.warning(
+                'FD retry: the original text is not kept; re-sending the stored body, which may not be byte-identical',
+                { transactionId: flowContext.transactionId, messageId }
+            );
+        }
+    }
+    const deliveries = out.scenario?.deliveries;
+    if (typeof deliveries === 'number' && deliveries > 1) {
+        fd.deliveries = Math.min(Math.floor(deliveries), 20);
+    }
     if (out.route.mode === 'SYNC' && out.route.kind === 'request') {
         fd.syncAnswer = {
             key: fdKeyFromFlowContext(flowContext),
@@ -145,7 +205,7 @@ export function fdSendHeaders(fd?: FdSendMeta): Record<string, string> {
     if (internalKey) headers[FD_HEADERS.internalKey] = internalKey;
     if (fd) {
         headers[FD_HEADERS.pathParams] = JSON.stringify(fd.pathParams ?? {});
-        if (fd.replay) headers[FD_HEADERS.replay] = '1';
+        if (fd.replay || fd.resend) headers[FD_HEADERS.replay] = '1';
     }
     return headers;
 }

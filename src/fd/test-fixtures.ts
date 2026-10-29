@@ -148,6 +148,7 @@ export function fakeFdTxn(
         save: jest.fn(async () => {
             calls.push('save');
         }),
+        release: jest.fn(async () => undefined),
     };
     return txn as unknown as FakeFdTxn;
 }

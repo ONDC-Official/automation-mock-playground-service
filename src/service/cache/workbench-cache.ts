@@ -552,6 +552,9 @@ const subscriberCache = (cache: ICacheService) => {
  *   it with `deserialiseFdState`.
  * - `FD_INBOUND::<transactionId>::<subscriberUrl>`: the latest message the NP sent per FD
  *   action, kept so a callback can be drafted `answering` its request.
+ * - `FD_ENGINE_LOCK::<transactionId>::<subscriberUrl>`: held while one caller reads, changes
+ *   and writes back the engine state, so concurrent writers (an NP's next request, the
+ *   acknowledgement of the workbench's own send) never lose each other's update.
  */
 const fdCache = (cache: ICacheService) => {
     const engineStateKey = (transactionId: string, subscriberUrl: string) =>
@@ -657,6 +660,37 @@ const fdCache = (cache: ICacheService) => {
             ttlSeconds
         );
 
+    const lockKey = (transactionId: string, subscriberUrl: string) =>
+        `FD_ENGINE_LOCK::${transactionId.trim()}::${subscriberUrl.trim()}`;
+
+    /**
+     * Tries once to take the engine-state lock with `token`. True when taken, or when the cache
+     * cannot lock at all (no `setIfAbsent`: a single in-process test cache).
+     */
+    const tryLockEngineState = async (
+        transactionId: string,
+        subscriberUrl: string,
+        token: string,
+        ttlMs: number
+    ): Promise<boolean> => {
+        if (!cache.setIfAbsent) return true;
+        return cache.setIfAbsent(
+            lockKey(transactionId, subscriberUrl),
+            token,
+            ttlMs
+        );
+    };
+
+    /** Releases the lock if `token` still holds it (an expired lock is someone else's). */
+    const unlockEngineState = async (
+        transactionId: string,
+        subscriberUrl: string,
+        token: string
+    ): Promise<void> => {
+        if (!cache.deleteIfValue) return;
+        await cache.deleteIfValue(lockKey(transactionId, subscriberUrl), token);
+    };
+
     return {
         getEngineState,
         setEngineState,
@@ -664,6 +698,8 @@ const fdCache = (cache: ICacheService) => {
         setInbound,
         getSentRaw,
         setSentRaw,
+        tryLockEngineState,
+        unlockEngineState,
     };
 };
 
