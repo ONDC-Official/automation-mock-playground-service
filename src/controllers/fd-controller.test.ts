@@ -14,7 +14,7 @@ import {
     NP_URL,
     seedFd,
     TXN_ID,
-} from '../test/fd-fixtures';
+} from '../fd/test-fixtures';
 
 jest.mock('../fd/engine', () => ({
     ...jest.requireActual('../fd/engine'),

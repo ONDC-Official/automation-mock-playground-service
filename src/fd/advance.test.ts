@@ -1,7 +1,7 @@
 import { advanceAfterSyncExchange } from './advance';
 import { actOnFlowService } from '../service/flows/process-flow';
 import { IQueueService } from '../queue/IQueueService';
-import { FLOW_ID, NP_URL, seedFd, TXN_ID } from '../test/fd-fixtures';
+import { FLOW_ID, NP_URL, seedFd, TXN_ID } from './test-fixtures';
 
 jest.mock('../service/flows/process-flow', () => ({
     actOnFlowService: jest.fn(async () => ({ success: true })),
