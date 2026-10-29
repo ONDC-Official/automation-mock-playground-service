@@ -19,6 +19,7 @@
  */
 import { InternalServerError } from '../errors/custom-errors';
 import logger from '../utils/logger';
+import { fdRegistryKeyLookup } from './registry';
 import { WorkbenchCacheServiceType } from '../service/cache/workbench-cache';
 import { FD_STATE_TTL_SECONDS } from './constants';
 import {
@@ -126,6 +127,8 @@ interface EngineConfig {
     routes: unknown;
     identity: FdIdentity;
     role: FdRole;
+    /** Registry signing-key lookup, to verify an issuer's quote signature (investor-app role). */
+    keyLookup?: (subscriberId: string, uniqueKeyId: string) => Promise<string>;
 }
 
 interface FdEngine {
@@ -229,11 +232,13 @@ function engineFor(
             const routes = await routeIndexFor(domain, version);
             let created: FdEngine;
             try {
+                const keyLookup = fdRegistryKeyLookup();
                 created = loadContract().createEngine({
                     spec,
                     routes,
                     identity: fdIdentity(role, domain, version),
                     role,
+                    ...(keyLookup && { keyLookup }),
                 });
             } catch (e) {
                 // The engine fails closed (e.g. the issuer role without signing keys); keep

@@ -100,6 +100,8 @@ FD_SUBSCRIBER_URL_BASE   base of the workbench's FD URIs (default <API_SERVICE_U
                          the workbench is <base>/investor-app and <base>/issuer
 FD_SIGNING_PRIVATE_KEY   required when the workbench plays the issuer (NP = BAP): it signs quotes
 FD_UNIQUE_KEY_ID         required with FD_SIGNING_PRIVATE_KEY: its key id
+FD_REGISTRY_URL          Registry for key lookups; needed when the workbench plays the investor app
+                         (verifies the issuer's quote signature). Signed with the FD_* identity if set
 PWB_INTERNAL_KEY         optional; sent as X-Pwb-Internal-Key on every FD call to the API service
 ```
 
