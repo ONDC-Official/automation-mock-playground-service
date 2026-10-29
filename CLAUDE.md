@@ -71,6 +71,9 @@ Business routes prefixed `/mock/playground` (mounted in `src/server.ts`, registe
 - `POST /manual/:action` — trigger a specific ONDC action
 - `POST /forms/submit` — submit form data
 - `DELETE /backdoor/clear-flows` — clear cached flow configs (query: `domain` req, `version` opt, `flowId` opt)
+- `POST /fd/replay` — FD only: re-send the callback sent for a repeated request (called by fd-gate)
+
+The same router is also mounted at `/mock/:domain/:version` (local routing).
 
 Ops endpoints mounted at app root (not under `/mock/playground`):
 - `GET /health`, `GET /metrics`, `GET /memory`, `GET /heapdump`
@@ -85,6 +88,19 @@ REDIS_HOST, REDIS_PORT, REDIS_DB_0, REDIS_DB_1
 REDIS_USERNAME, REDIS_PASSWORD (optional)
 RABBITMQ_URL (optional, defaults to in-memory queue)
 MEMORY_PROFILER_INTERVAL_MS
+```
+
+FD only (`ONDC:FIS14:FD`; read on first FD use, never needed for Beckn domains):
+```
+FD_SPEC                  path to the FD OpenAPI YAML (required for FD)
+FD_ROUTE_TABLE           path to fd_routes.yaml; overrides the config service's
+                         GET {CONFIG_SERVICE_URL}/api-service/fdRoutes (local runs)
+FD_SUBSCRIBER_ID         workbench subscriber id (default: API_SERVICE_URL host)
+FD_SUBSCRIBER_URL_BASE   base of the workbench's FD URIs (default <API_SERVICE_URL>/<domain>/<version>);
+                         the workbench is <base>/investor-app and <base>/issuer
+FD_SIGNING_PRIVATE_KEY   optional; the issuer role signs quotes with it
+FD_UNIQUE_KEY_ID         optional; key id for FD_SIGNING_PRIVATE_KEY
+PWB_INTERNAL_KEY         optional; sent as X-Pwb-Internal-Key on every FD call to the API service
 ```
 
 ### Error Handling
@@ -127,6 +143,10 @@ The resolved HTML stored in session is read back by `getReferenceData` (`src/uti
 
 - `saveMockSessionData(txId, url, payload, saveDataConfig, sessionId)` — **merges** extracted fields from an ONDC payload into session using JSONPath/EVAL expressions from the mock config. Use this for API step data.
 - `overwriteMockSessionData(txId, url, data)` — **replaces** the entire session object. Use this when the whole session needs to be rewritten (e.g. after resolving form HTML).
+
+### FD (`ONDC:FIS14:FD`, fixed deposits)
+
+Every FD path is gated on `isFdDomain(domain)` (`src/fd/constants.ts`); Beckn flows never reach it. The FD engine `@ondc/fd-contract` judges incoming messages and drafts outgoing ones; it is reached only through `src/fd/engine.ts` (the adapter), which loads it lazily on the first FD use. Per transaction the engine state lives in Redis DB 0 at `FD_ENGINE_STATE::<transactionId>::<subscriberUrl>` (5 h). See `docs/decision-flows.md` §15 for the branch map: SYNC requests answered inline in `/manual/:action`, `engine.observe` before the validate script, `engine.draft` → `sessionData.fd_draft` → step script → `engine.sent` in the GENERATE job, the `X-Pwb-*` headers on the send job, and `/fd/replay`.
 
 ### Testing
 

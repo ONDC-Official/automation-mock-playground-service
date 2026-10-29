@@ -1,6 +1,6 @@
 # Decision Flows Reference
 
-> Branch maps for every HTTP entry point, state machine, job, and cache in `automation-mock-playground-service`. Reference-style, terse. File:line citations on every claim. Last reviewed: 2026-05-27.
+> Branch maps for every HTTP entry point, state machine, job, and cache in `automation-mock-playground-service`. Reference-style, terse. File:line citations on every claim. Last reviewed: 2026-10-29.
 
 ## Contents
 
@@ -18,6 +18,7 @@
 12. [Cache layer reference](#12-cache-layer-reference)
 13. [Error codes & exceptions](#13-error-codes--exceptions)
 14. [Cross-cutting](#14-cross-cutting)
+15. [FD branch (ONDC:FIS14:FD)](#15-fd-branch-ondcfis14fd)
 
 ---
 
@@ -56,7 +57,7 @@ HTTP request  ──►  middleware  ──►  controller  ──►  service  
                                                                    HTTP → api-service
 ```
 
-All business routes mount under `/mock/playground` (`server.ts:62`). Ops endpoints (`/health`, `/metrics`, `/memory`, `/heapdump`) are app-root (`server.ts:24-50`).
+All business routes mount under `/mock/playground` (`server.ts:62`), and the same router again under `/mock/:domain/:version` (local routing). Ops endpoints (`/health`, `/metrics`, `/memory`, `/heapdump`) are app-root (`server.ts:24-50`).
 
 ---
 
@@ -70,6 +71,7 @@ Mounting: `server.ts:62` mounts `router` (`routes/index.ts`) at `/mock/playgroun
 | `flowRouter` | `/flows` | `routes/flowRoutes.ts` |
 | `backdoorRouter` | `/backdoor` | `routes/backdoorRouter.ts` |
 | `formRouter` | `/forms` | `routes/formRoutes.ts` |
+| `fdRouter` | `/fd` | `routes/fdRoutes.ts` (FD only) |
 
 ### Endpoint index
 
@@ -78,7 +80,8 @@ Mounting: `server.ts:62` mounts `router` (`routes/index.ts`) at `/mock/playgroun
 | POST | `/mock/playground/flows/new` | `startNewFlowController` → `actUponFlow` | `flowRoutes.ts:15-19` |
 | POST | `/mock/playground/flows/proceed` | `proceedWithFlowController` → `actUponFlow` | `flowRoutes.ts:21-25` |
 | GET | `/mock/playground/flows/current-status` | `validateRequiredParams(['transaction_id', 'session_id'])` → `getFlowStatusController` | `flowRoutes.ts:27-31` |
-| POST | `/mock/playground/manual/:action` | `receivePayloadFromApiService` → `validateAndSaveIncomingRequest` → `actUponFlow` | `manualRoutes.ts:27-31` |
+| POST | `/mock/playground/manual/:action` | `receivePayloadFromApiService` → `fdIncomingRequest` (FD only, §15) → `validateAndSaveIncomingRequest` → `actUponFlow` | `manualRoutes.ts` |
+| POST | `/mock/playground/fd/replay` | `fdReplay` (FD only, §15.5) | `fdRoutes.ts` |
 | GET | `/mock/playground/forms/:domain/:formId` | `getFormController` | `formRoutes.ts:14` |
 | POST | `/mock/playground/forms/:domain/:formId/submit` | `submitFormController` | `formRoutes.ts:15-18` |
 | DELETE | `/mock/playground/backdoor/clear-flows` | `clearFlowsController` | `backdoorRouter.ts:26-29` |
@@ -183,6 +186,10 @@ Loads transaction (apiList already written by api-service before forwarding), at
 | `transactionData.sessionId` absent | `:51-55` | `InternalServerError('Session ID not found in transaction data')` → 500 |
 | `getTransactionData` throws (no such txn) | `:46-48` | propagated → normalizeError → OndcProtocolError('31001','Error receiving payload...') |
 | Happy path | `:60-71` | attach FlowContext, `next()` |
+
+#### Stage A2: `fdIncomingRequest` (`fd-controller.ts`)
+
+Non-FD domain → `next()`, nothing else. FD → see §15.2 (SYNC answered inline, or `engine.observe` then `next()`).
 
 #### Stage B: `validateAndSaveIncomingRequest` (`incoming-request-controller.ts:37-119`)
 
@@ -844,6 +851,11 @@ Adding a new service: private field + lazy getter + setter (test override) + res
 | `LOG_LEVEL`, `LOG_FULL_RESPONSE` | logging knobs |
 | `MEMORY_PROFILER_INTERVAL_MS` | memory profiler tick |
 | `PORT` | server port |
+| `FD_SPEC` | FD only: path to the FD OpenAPI YAML (required for FD) |
+| `FD_ROUTE_TABLE` | FD only: path to fd_routes.yaml; overrides `GET {CONFIG_SERVICE_URL}/api-service/fdRoutes` |
+| `FD_SUBSCRIBER_ID`, `FD_SUBSCRIBER_URL_BASE` | FD only: the workbench's identity (defaults from `API_SERVICE_URL`) |
+| `FD_SIGNING_PRIVATE_KEY`, `FD_UNIQUE_KEY_ID` | FD only, optional: issuer-role signing |
+| `PWB_INTERNAL_KEY` | FD only, optional: `X-Pwb-Internal-Key` on sends |
 
 ### 14.5 Server boot (`server.ts`)
 
@@ -853,7 +865,7 @@ Middleware stack order (`server.ts:18-66`):
 3. `responseLogger`
 4. `cors()`
 5. Ops endpoints (`/metrics`, `/memory`, `/heapdump`, `/health`)
-6. `express.json({ limit: '3mb' })`
+6. `express.json({ limit: '8mb' })` (8 MiB for FD bodies; global, since the domain is only known after parsing)
 7. `express.urlencoded({ extended: true })`
 8. Business router at `/mock/playground`
 9. `globalErrorHandler`
@@ -861,6 +873,52 @@ Middleware stack order (`server.ts:18-66`):
 Note: `/health`, `/metrics`, `/memory`, `/heapdump` are mounted BEFORE JSON body parser — they don't consume bodies.
 
 ---
+
+## 15. FD branch (ONDC:FIS14:FD)
+
+Gate: `isFdDomain(domain)` (`fd/constants.ts`). Beckn domains never enter any row below. Engine: `@ondc/fd-contract`, reached only through `fd/engine.ts`, loaded with `require` on the first FD use (a missing/unbuilt package fails that request with `FdEngineUnavailableError` → 500, never startup).
+
+### 15.1 Engine inputs and state
+
+| Item | Source |
+|---|---|
+| Route table | `GET {CONFIG_SERVICE_URL}/api-service/fdRoutes?domain&version` → `{data}`, in memory; env `FD_ROUTE_TABLE` (file) overrides |
+| Spec | env `FD_SPEC` (file) |
+| Role | session `npType` BAP → workbench is `DEPOSIT_ISSUER`; BPP → `INVESTOR_APP` |
+| Identity | `FD_SUBSCRIBER_ID`, `FD_SUBSCRIBER_URL_BASE` + `/issuer` or `/investor-app`, `FD_SIGNING_PRIVATE_KEY`, `FD_UNIQUE_KEY_ID` |
+| Counterparty | session `subscriberId`, `subscriberUrl`, passed on every `draft` |
+| State | `FD_ENGINE_STATE::<txId>::<subscriberUrl>` (DB 0, 5 h), the engine's `serialiseFdState` text; findings are kept in it by the engine |
+| Last NP message per action | `FD_INBOUND::<txId>::<subscriberUrl>` (DB 0, 5 h), the `answering` of a callback draft |
+| Workbench URIs | config-cache: `bap_uri` `…/investor-app`, `bpp_uri` `…/issuer` (Beckn: `buyer`/`seller`) |
+
+### 15.2 `/manual/:action` (`fd-controller.ts` `fdIncomingRequest`)
+
+| Condition | Effect |
+|---|---|
+| `X-Pwb-Fd-Route` present AND route mode `SYNC` AND kind `request` | `answerFdSync` (`fd/incoming.ts`): `observe` → pending step of that action (LISTENING first) → its saveData on the request → `draft({action, answering, scenario})` → step generate script with `sessionData.fd_draft` → drop `fdScenario` → `sent` → save → `sendRawBody(body, draft.httpStatus ?? 200)`. No queue, no `actUponFlow`. Then `scheduleFdAdvance` (§15.4) |
+| SYNC, `observe` says `replayOf` | answer with `replayFor(replayOf).body`, no advance |
+| SYNC, no pending step for the action | answer with the engine draft alone (warning) |
+| Otherwise (async request, callback, webhook) | `observeIncomingFd`: `observe`, save, findings logged, message kept in `FD_INBOUND` → `next()` (validate/save/act as Beckn) |
+| Async, `observe` says `replayOf` | `sendAck(context)`, no `next()`: the flow does not advance |
+
+### 15.3 Jobs
+
+| Job | FD behaviour |
+|---|---|
+| GENERATE (`generate-response.ts`) | before the scripts: `prepareFdOutgoing` → `draft({action, answering: FD_INBOUND[route.inReplyTo] for callbacks, scenario: mock.defaultPayload.fdScenario, userInputs})`; `txnMockData.fd_draft = draft.body` (in memory only). After the generate script: `finaliseFdOutgoing` drops `fdScenario`, `sent`, save; result carries `fd: {pathParams, syncAnswer?}` |
+| GENERATE complete | passes `fd` to the send job |
+| SEND (`api-service-request.ts`) | headers `X-Pwb-Internal-Key` (env `PWB_INTERNAL_KEY`, if set), `X-Pwb-Fd-Path-Params` (JSON from the draft), `X-Pwb-Fd-Replay: 1` on replays |
+| SEND, route mode SYNC (workbench calls the NP) | the HTTP response is the NP's answer: `observe` (`requestMessageId`), save, `sessionData.fd_responses[actionId] = body`, then `scheduleFdAdvance` |
+
+### 15.4 How a SYNC step completes (`fd/advance.ts`)
+
+The API service records the exchange: network-observability → recorder appends ONE apiList entry (request action + message_id, the answer as `response`) and sets `FLOW_STATUS` AVAILABLE. That entry makes the mapper show the step COMPLETE. The recorder runs off the response path, so `scheduleFdAdvance` polls the transaction for that `message_id` (150 ms, up to 10 s), waits 250 ms for the recorder's FLOW_STATUS write, then runs `actOnFlowService` once, as `/manual` does after an async message.
+
+`checkPerfectAck(response, domain, messageId)` (`mapper/reduce-history.ts`), FD: an ACK must echo `context` (same `message_id`), whatever its HTTP status (fd-gate sends 202 for an async request); a SYNC answer `{context, message}` without `error` is SUCCESS; NACK / `error` is ERROR. Beckn rule unchanged.
+
+### 15.5 `POST /fd/replay` (`fd/replay.ts`)
+
+Body `{domain, version, action, message_id, transaction_id, subscriber_url}` (zod; non-FD domain → 400). Loads the transaction → session → engine state; `replayFor(message_id)`; none → 200 `{replayed:false}`; else enqueue SEND with the stored body and `fd.replay` (→ `X-Pwb-Fd-Replay: 1`), `sent({..., replay:true})`, save → 200 `{replayed:true, action, jobId}`.
 
 ## Appendix: out-of-repo dependencies
 
