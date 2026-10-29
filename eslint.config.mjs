@@ -83,6 +83,7 @@ export default [
                         'sendError',
                         'sendAck',
                         'sendNack',
+                        'sendRawBody',
                     ],
                 },
             ],
