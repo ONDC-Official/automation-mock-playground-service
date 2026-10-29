@@ -409,3 +409,53 @@ describe('SEND job: the NP’s SYNC answer to a workbench request', () => {
         );
     });
 });
+
+describe('SEND job: an accepted FD send moves the flow on', () => {
+    const send = (
+        deps: Parameters<typeof createApiServiceRequestJobHandler>[0],
+        fd: object
+    ) =>
+        createApiServiceRequestJobHandler(deps)({
+            action: 'on_application_create',
+            domain: FD,
+            version: FD_VERSION,
+            payload: {
+                context: { transaction_id: TXN_ID, message_id: 'm-cb-1' },
+            },
+            subscriberUrl: NP_URL,
+            fd: { pathParams: {}, ...fd },
+        });
+
+    it('a callback the API service accepted dispatches the next step once recorded', async () => {
+        const { workbenchCache } = await seedFd('BAP');
+        jest.spyOn(axios, 'post').mockResolvedValue({
+            status: 200,
+            data: { message: { ack: { status: 'ACK' } } },
+        });
+        const queue = queueSpy();
+        await send({ workbenchCache, queue }, {});
+        expect(mockedAdvance).toHaveBeenCalledWith(
+            { workbenchCache, queue },
+            {
+                transactionId: TXN_ID,
+                subscriberUrl: NP_URL,
+                messageId: 'm-cb-1',
+            }
+        );
+    });
+
+    it('a replayed message and a refused send do not move the flow', async () => {
+        const { workbenchCache } = await seedFd('BAP');
+        const queue = queueSpy();
+        jest.spyOn(axios, 'post').mockResolvedValue({ status: 200, data: {} });
+        await send({ workbenchCache, queue }, { replay: true });
+        jest.spyOn(axios, 'post').mockRejectedValue(
+            Object.assign(new Error('400'), {
+                isAxiosError: true,
+                response: { status: 400, data: {} },
+            })
+        );
+        await send({ workbenchCache, queue }, {});
+        expect(mockedAdvance).not.toHaveBeenCalled();
+    });
+});

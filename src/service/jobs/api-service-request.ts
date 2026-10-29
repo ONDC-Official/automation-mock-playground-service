@@ -5,6 +5,7 @@ import { setTraceContext } from '../../utils/trace-context';
 import { isFdDomain } from '../../fd/constants';
 import { FdSendMeta, fdSendHeaders } from '../../fd/outgoing';
 import { handleFdSyncAnswer } from '../../fd/sync-answer';
+import { scheduleFdAdvance } from '../../fd/advance';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 
 export const SEND_TO_API_SERVICE_JOB = 'SEND_TO_API_SERVICE_JOB';
@@ -98,8 +99,11 @@ export function createApiServiceRequestJobHandler(
 }
 
 /**
- * FD: when the workbench called an NP's SYNC action, the response is the NP's answer. Failures
- * here are logged, never turned into a send failure.
+ * FD: when the workbench called an NP's SYNC action, the response is the NP's answer. Any other
+ * accepted FD send (a callback, a webhook, a workbench request) moves the flow on once the
+ * recorder has its entry, so a workbench step that follows (a webhook after a callback) is sent
+ * without anyone pressing proceed: a certification run is unattended. Failures here are logged,
+ * never turned into a send failure.
  */
 async function afterFdSend(
     deps: ApiServiceRequestJobDeps | undefined,
@@ -107,12 +111,16 @@ async function afterFdSend(
     status: number,
     body: unknown
 ): Promise<void> {
-    const sync = data.fd?.syncAnswer;
-    if (!sync || data.fd?.replay) return;
+    if (data.fd?.replay) return;
     if (!deps) {
-        logger.error('FD SYNC answer not observed: send job has no caches', {
+        logger.error('FD send not followed up: send job has no caches', {
             action: data.action,
         });
+        return;
+    }
+    const sync = data.fd?.syncAnswer;
+    if (!sync) {
+        if (status >= 200 && status < 300) advanceAfterSend(deps, data);
         return;
     }
     try {
@@ -129,6 +137,24 @@ async function afterFdSend(
             error
         );
     }
+}
+
+function advanceAfterSend(
+    deps: ApiServiceRequestJobDeps,
+    data: ApiServiceRequestJobParams
+): void {
+    const context = (data.payload as { context?: Record<string, unknown> })
+        ?.context;
+    const transactionId = context?.transaction_id;
+    const messageId = context?.message_id;
+    if (typeof transactionId !== 'string' || typeof messageId !== 'string') {
+        return;
+    }
+    void scheduleFdAdvance(deps, {
+        transactionId,
+        subscriberUrl: data.subscriberUrl,
+        messageId,
+    });
 }
 
 export function apiServiceRequestJobComplete(
