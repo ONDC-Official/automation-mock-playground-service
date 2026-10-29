@@ -69,6 +69,25 @@ export async function replayFdCallback(
         };
     }
 
+    const originalId = (original.body as { context?: { message_id?: unknown } })
+        ?.context?.message_id;
+    const rawBody =
+        typeof originalId === 'string'
+            ? await deps.workbenchCache
+                  .FdCacheService()
+                  .getSentRaw(
+                      body.transaction_id,
+                      body.subscriber_url,
+                      originalId
+                  )
+            : null;
+    if (rawBody === null) {
+        logger.warning(
+            'FD replay: the original text is not kept; re-sending the stored body, which the API service may refuse as not byte-identical',
+            meta
+        );
+    }
+
     const job: ApiServiceRequestJobParams = {
         action: original.action,
         domain: body.domain,
@@ -83,6 +102,7 @@ export async function replayFdCallback(
         fd: {
             pathParams: original.pathParams ?? {},
             replay: true,
+            ...(rawBody !== null && { rawBody }),
         },
     };
     const jobId = await deps.queue.enqueue(SEND_TO_API_SERVICE_JOB, job);

@@ -308,7 +308,10 @@ describe('SEND job headers', () => {
         expect(post.mock.calls[0][2]?.headers).toEqual({
             'X-Pwb-Internal-Key': 'secret-key',
             'X-Pwb-Fd-Path-Params': '{"applicationId":"APP-1"}',
+            'Content-Type': 'application/json',
         });
+        // FD bodies go as the text the job serialised, so it can be kept for replays.
+        expect(post.mock.calls[0][1]).toBe(JSON.stringify(callbackDraft));
     });
 
     it('FD replay: adds X-Pwb-Fd-Replay: 1', async () => {
@@ -322,7 +325,37 @@ describe('SEND job headers', () => {
         expect(post.mock.calls[0][2]?.headers).toEqual({
             'X-Pwb-Fd-Path-Params': '{}',
             'X-Pwb-Fd-Replay': '1',
+            'Content-Type': 'application/json',
         });
+    });
+
+    it('FD replay: sends the original text verbatim, and an accepted send keeps its text', async () => {
+        const { workbenchCache } = await seedFd('BAP');
+        const queue = queueSpy();
+        const post = jest
+            .spyOn(axios, 'post')
+            .mockResolvedValue({ status: 200, data: {} });
+        const payload = {
+            ...callbackDraft,
+            context: { ...callbackDraft.context, transaction_id: TXN_ID },
+        };
+        await createApiServiceRequestJobHandler({ workbenchCache, queue })({
+            ...base,
+            payload,
+            fd: { pathParams: {} },
+        });
+        const kept = await workbenchCache
+            .FdCacheService()
+            .getSentRaw(TXN_ID, NP_URL, 'm-cb-1');
+        expect(kept).toBe(JSON.stringify(payload));
+
+        const original = '{"b":1,  "a":2}';
+        await createApiServiceRequestJobHandler({ workbenchCache, queue })({
+            ...base,
+            payload,
+            fd: { pathParams: {}, replay: true, rawBody: original },
+        });
+        expect(post.mock.calls[1][1]).toBe(original);
     });
 
     it('Beckn: no X-Pwb headers, request unchanged', async () => {

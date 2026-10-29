@@ -36,6 +36,8 @@ export interface FdSendMeta {
     pathParams: Record<string, string>;
     /** Re-send of a stored message (`X-Pwb-Fd-Replay: 1`). */
     replay?: boolean;
+    /** A replay's exact original text, sent unchanged so the body digest matches. */
+    rawBody?: string;
     /**
      * Set when the workbench calls an NP's SYNC action: the HTTP response is the NP's answer,
      * to be observed and saved as the step's result.

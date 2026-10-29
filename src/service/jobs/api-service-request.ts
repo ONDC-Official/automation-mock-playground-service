@@ -6,6 +6,7 @@ import { isFdDomain } from '../../fd/constants';
 import { FdSendMeta, fdSendHeaders } from '../../fd/outgoing';
 import { handleFdSyncAnswer } from '../../fd/sync-answer';
 import { scheduleFdAdvance } from '../../fd/advance';
+import { FD_STATE_TTL_SECONDS } from '../../fd/constants';
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 
 export const SEND_TO_API_SERVICE_JOB = 'SEND_TO_API_SERVICE_JOB';
@@ -55,13 +56,26 @@ export function createApiServiceRequestJobHandler(
                 queryParams: data.queryParams,
             });
             const isFd = isFdDomain(data.domain);
-            const res = await axios.post(url, data.payload, {
+            // FD bodies are sent as text the job serialises itself (or a replay's stored
+            // original), so the exact bytes can be kept for a later byte-identical replay.
+            const fdRaw = isFd
+                ? (data.fd?.rawBody ?? JSON.stringify(data.payload))
+                : undefined;
+            const res = await axios.post(url, isFd ? fdRaw : data.payload, {
                 params: {
                     ...data.queryParams,
                 },
-                ...(isFd ? { headers: fdSendHeaders(data.fd) } : {}),
+                ...(isFd
+                    ? {
+                          headers: {
+                              ...fdSendHeaders(data.fd),
+                              'Content-Type': 'application/json',
+                          },
+                      }
+                    : {}),
             });
             if (isFd) {
+                await rememberFdSent(deps, data, fdRaw as string);
                 await afterFdSend(deps, data, res.status, res.data);
             }
             return {
@@ -134,6 +148,39 @@ async function afterFdSend(
         logger.error(
             'FD SYNC answer could not be observed',
             { action: data.action, transactionId: sync.key.transactionId },
+            error
+        );
+    }
+}
+
+/** Keeps the exact text of an FD message the API service accepted, for a later replay. */
+async function rememberFdSent(
+    deps: ApiServiceRequestJobDeps | undefined,
+    data: ApiServiceRequestJobParams,
+    raw: string
+): Promise<void> {
+    if (!deps || data.fd?.replay) return;
+    const context = (data.payload as { context?: Record<string, unknown> })
+        ?.context;
+    const transactionId = context?.transaction_id;
+    const messageId = context?.message_id;
+    if (typeof transactionId !== 'string' || typeof messageId !== 'string') {
+        return;
+    }
+    try {
+        await deps.workbenchCache
+            .FdCacheService()
+            .setSentRaw(
+                transactionId,
+                data.subscriberUrl,
+                messageId,
+                raw,
+                FD_STATE_TTL_SECONDS
+            );
+    } catch (error) {
+        logger.error(
+            'FD: could not keep the sent text for replays',
+            { action: data.action, transactionId, messageId },
             error
         );
     }

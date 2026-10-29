@@ -623,7 +623,48 @@ const fdCache = (cache: ICacheService) => {
         await cache.set(key, store, InboundStoreSchema, ttlSeconds);
     };
 
-    return { getEngineState, setEngineState, getInbound, setInbound };
+    // The exact text of each FD message the workbench sent, by message_id. A replay must be
+    // byte-identical (the API service compares body digests), and the engine keeps bodies in
+    // canonical (key-sorted) JSON, so the text is kept as sent.
+    const sentRawKey = (
+        transactionId: string,
+        subscriberUrl: string,
+        messageId: string
+    ) =>
+        `FD_SENT_RAW::${transactionId.trim()}::${subscriberUrl.trim()}::${messageId.trim()}`;
+
+    const getSentRaw = async (
+        transactionId: string,
+        subscriberUrl: string,
+        messageId: string
+    ): Promise<string | null> =>
+        cache.get(
+            sentRawKey(transactionId, subscriberUrl, messageId),
+            z.string()
+        );
+
+    const setSentRaw = async (
+        transactionId: string,
+        subscriberUrl: string,
+        messageId: string,
+        raw: string,
+        ttlSeconds: number
+    ): Promise<void> =>
+        cache.set(
+            sentRawKey(transactionId, subscriberUrl, messageId),
+            raw,
+            z.string(),
+            ttlSeconds
+        );
+
+    return {
+        getEngineState,
+        setEngineState,
+        getInbound,
+        setInbound,
+        getSentRaw,
+        setSentRaw,
+    };
 };
 
 export type FlowStatusCacheService = ReturnType<typeof flowStatusCache>;
