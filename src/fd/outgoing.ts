@@ -55,6 +55,12 @@ export interface FdSendMeta {
     /** A replay's exact original text, sent unchanged so the body digest matches. */
     rawBody?: string;
     /**
+     * The step's scenario directives (`X-Pwb-Fd-Scenario`), when the workbench deviates on
+     * purpose: recorded with the message so the report does not count the deviation against
+     * the participant. Never `userInputs`.
+     */
+    scenario?: Record<string, unknown>;
+    /**
      * Set when the workbench calls an NP's SYNC action: the HTTP response is the NP's answer,
      * to be observed and saved as the step's result.
      */
@@ -187,6 +193,8 @@ export async function finaliseFdOutgoing(
             );
         }
     }
+    const directives = scenarioDirectives(out.scenario);
+    if (directives) fd.scenario = directives;
     const deliveries = out.scenario?.deliveries;
     if (typeof deliveries === 'number' && deliveries > 1) {
         fd.deliveries = Math.min(Math.floor(deliveries), 20);
@@ -211,6 +219,21 @@ export function fdSendHeaders(fd?: FdSendMeta): Record<string, string> {
     if (fd) {
         headers[FD_HEADERS.pathParams] = JSON.stringify(fd.pathParams ?? {});
         if (fd.replay || fd.resend) headers[FD_HEADERS.replay] = '1';
+        if (fd.scenario)
+            headers[FD_HEADERS.scenario] = JSON.stringify(fd.scenario);
     }
     return headers;
+}
+
+/** The scenario's directives worth recording (what makes the workbench deviate), or undefined. */
+export function scenarioDirectives(
+    scenario: FdScenario | undefined
+): Record<string, unknown> | undefined {
+    if (!scenario) return undefined;
+    const kept = Object.fromEntries(
+        Object.entries(scenario).filter(
+            ([k, v]) => k !== 'userInputs' && v !== undefined && v !== false
+        )
+    );
+    return Object.keys(kept).length > 0 ? kept : undefined;
 }

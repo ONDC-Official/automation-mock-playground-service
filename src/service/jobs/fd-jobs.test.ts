@@ -174,6 +174,8 @@ describe('FD GENERATE job: draft → script → sent', () => {
         expect(result.fd).toEqual({
             pathParams: { applicationId: 'APP-1' },
             actionId: 'on_application_create',
+            // recorded with the message (X-Pwb-Fd-Scenario), so the report knows it is deliberate
+            scenario: { mutate: ['/message/x'] },
         });
 
         // The engine's draft is not persisted into the session.
@@ -565,6 +567,7 @@ describe('M6 scenarios in the GENERATE job', () => {
             actionId: 'nominee_register_2',
             resend: true,
             rawBody: original,
+            scenario: { retry: true },
         });
         expect(txn.release).toHaveBeenCalled();
     });
@@ -578,6 +581,7 @@ describe('M6 scenarios in the GENERATE job', () => {
             pathParams: {},
             actionId: 'nominee_register_2',
             deliveries: 5,
+            scenario: { deliveries: 5 },
         });
     });
 

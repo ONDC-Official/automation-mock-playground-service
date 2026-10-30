@@ -16,6 +16,8 @@ export const FD_HEADERS = {
     method: 'X-Pwb-Fd-Method',
     path: 'X-Pwb-Fd-Path',
     replay: 'X-Pwb-Fd-Replay',
+    /** The step's scenario directives when the workbench deviates on purpose (recorded, never sent to the NP). */
+    scenario: 'X-Pwb-Fd-Scenario',
     /** On a response: the FD-PWB code of the workbench's own refusal (not the NP's answer). */
     gateError: 'X-Pwb-Fd-Gate-Error',
 } as const;
