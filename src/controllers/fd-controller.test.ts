@@ -187,6 +187,7 @@ describe('FD /manual/:action — SYNC answered inline', () => {
                 transactionId: TXN_ID,
                 subscriberUrl: NP_URL,
                 messageId: 'm-req-1',
+                stepActionId: 'quote_request',
             }
         );
     });

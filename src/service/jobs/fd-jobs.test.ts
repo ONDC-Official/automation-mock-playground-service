@@ -444,7 +444,12 @@ describe('SEND job: the NP’s SYNC answer to a workbench request', () => {
         expect(session.fd_responses).toEqual({ quote_request: answer });
         expect(mockedAdvance).toHaveBeenCalledWith(
             { workbenchCache, queue },
-            { transactionId: TXN_ID, subscriberUrl: NP_URL, messageId: 'm-q-1' }
+            {
+                transactionId: TXN_ID,
+                subscriberUrl: NP_URL,
+                messageId: 'm-q-1',
+                stepActionId: 'quote_request',
+            }
         );
     });
 });

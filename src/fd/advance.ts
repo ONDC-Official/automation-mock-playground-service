@@ -38,6 +38,14 @@ export interface FdAdvanceTarget {
      * re-send it in a loop).
      */
     sentActionId?: string;
+    /**
+     * The flow step this exchange completes: the step sent (`sentActionId`), or the NP's SYNC
+     * request answered. Once recorded, the flow is dispatched only while its next pending step is
+     * the one right after this step. Past that, another dispatch (the NP's own message, or an
+     * advance whose record landed first) has already moved the flow on, and dispatching again
+     * would send that step twice — which happens when the recorder's entries land late.
+     */
+    stepActionId?: string;
 }
 
 export interface FdAdvanceOptions {
@@ -125,15 +133,23 @@ export async function advanceAfterSyncExchange(
         target.transactionId,
         target.subscriberUrl
     );
-    if (
-        target.sentActionId &&
-        (await stillPending(deps, flowContext, target))
-    ) {
-        logger.error(
-            'FD advance: the step just sent is still pending once recorded; not dispatching it again',
-            { ...meta }
-        );
-        return false;
+    const step = target.stepActionId ?? target.sentActionId;
+    if (step) {
+        const position = await flowPosition(deps, flowContext, target, step);
+        if (target.sentActionId && position.next === target.sentActionId) {
+            logger.error(
+                'FD advance: the step just sent is still pending once recorded; not dispatching it again',
+                { ...meta }
+            );
+            return false;
+        }
+        if (position.passed) {
+            logger.info(
+                'FD advance: the flow has already moved past the step after this one; not dispatching it again',
+                { ...meta, next: position.next }
+            );
+            return false;
+        }
     }
     const result = await actOnFlowService(
         flowContext,
@@ -147,12 +163,17 @@ export async function advanceAfterSyncExchange(
     return true;
 }
 
-/** True when the step the send was for is still the next step of the sequence. */
-async function stillPending(
+/**
+ * Where the flow stands relative to `step`: its next pending step, and whether that lies beyond
+ * the step right after `step` (the flow moved on without this advance). An unknown step is never
+ * "passed", so the flow is dispatched as before.
+ */
+async function flowPosition(
     deps: { workbenchCache: WorkbenchCacheServiceType },
     flowContext: FlowContext,
-    target: FdAdvanceTarget
-): Promise<boolean> {
+    target: FdAdvanceTarget,
+    step: string
+): Promise<{ next?: string; passed: boolean }> {
     const [flowStatus, sessionData] = await Promise.all([
         deps.workbenchCache
             .FlowStatusCacheService()
@@ -173,8 +194,10 @@ async function stillPending(
         undefined,
         flowContext.domain
     );
-    const next = map.sequence.find(s => s.status !== 'COMPLETE');
-    return next?.actionId === target.sentActionId;
+    const at = map.sequence.findIndex(s => s.actionId === step);
+    const nextAt = map.sequence.findIndex(s => s.status !== 'COMPLETE');
+    const next = nextAt >= 0 ? map.sequence[nextAt]?.actionId : undefined;
+    return { next, passed: at >= 0 && nextAt > at + 1 };
 }
 
 /** Fire-and-forget form: never throws, logs failures. */

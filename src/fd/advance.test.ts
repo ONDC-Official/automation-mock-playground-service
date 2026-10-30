@@ -137,4 +137,36 @@ describe('advanceAfterSyncExchange', () => {
         ).resolves.toBe(false);
         expect(mockedAct).not.toHaveBeenCalled();
     });
+
+    it('does not dispatch once the flow has moved past the step after this one (a late record)', async () => {
+        const { cache0, workbenchCache } = await seedFd('BAP');
+        // quote_request, application_create and its callback are all recorded: the flow is at
+        // on_application_state_change. A late advance for quote_request must not dispatch again.
+        await cache0.set(
+            `${TXN_ID}::${NP_URL}`,
+            txnWith([
+                entry('quote_request', 'm-req-1', '2026-10-29T10:00:00.000Z'),
+                entry('application_create', 'm-ac-1', '2026-10-29T10:00:01.000Z'),
+                entry('on_application_create', 'm-oac-1', '2026-10-29T10:00:02.000Z'),
+            ]),
+            {} as never
+        );
+        await expect(
+            advanceAfterSyncExchange(
+                { workbenchCache, queue },
+                { ...target, stepActionId: 'quote_request' },
+                fast
+            )
+        ).resolves.toBe(false);
+        expect(mockedAct).not.toHaveBeenCalled();
+        // The advance for the step right before the pending one still dispatches.
+        await expect(
+            advanceAfterSyncExchange(
+                { workbenchCache, queue },
+                { ...target, messageId: 'm-oac-1', sentActionId: 'on_application_create' },
+                fast
+            )
+        ).resolves.toBe(true);
+        expect(mockedAct).toHaveBeenCalledTimes(1);
+    });
 });

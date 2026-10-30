@@ -83,6 +83,7 @@ export async function handleFdSyncAnswer(
             transactionId: key.transactionId,
             subscriberUrl: key.subscriberUrl,
             messageId: sync.requestMessageId,
+            stepActionId: sync.actionId,
         });
     }
 }

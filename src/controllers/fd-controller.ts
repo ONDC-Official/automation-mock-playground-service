@@ -104,6 +104,9 @@ export function fdControllers(
                                 transactionId: ctx.transactionId,
                                 subscriberUrl: ctx.subscriberUrl,
                                 messageId: answer.requestMessageId,
+                                ...(answer.stepActionId && {
+                                    stepActionId: answer.stepActionId,
+                                }),
                             }
                         );
                     }
