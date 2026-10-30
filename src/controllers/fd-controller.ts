@@ -60,12 +60,21 @@ export function fdControllers(
                 const sync = isFdSyncRequest(req.get(FD_HEADERS.route), route);
                 // An async request arrives with its body alone: its path parameters are where
                 // fd-gate left them (consent_withdraw names its consent only by the path).
-                if (!sync && !inbound.pathParams && route && route.pathParams.length > 0) {
+                if (
+                    !sync &&
+                    !inbound.pathParams &&
+                    route &&
+                    route.pathParams.length > 0
+                ) {
                     const messageId = messageIdOf(req.body);
                     const stored = messageId
                         ? await workbenchCache
                               .FdCacheService()
-                              .getPathParams(ctx.domain, ctx.transactionId, messageId)
+                              .getPathParams(
+                                  ctx.domain,
+                                  ctx.transactionId,
+                                  messageId
+                              )
                         : null;
                     if (stored) inbound.pathParams = stored;
                 }
