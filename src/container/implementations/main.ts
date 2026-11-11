@@ -9,7 +9,7 @@ import { createInMemoryQueue } from '../../queue/InMemoryQueue';
 import logger from '../../utils/logger';
 import ServiceContainer from '../container';
 import Redis from 'ioredis';
-import MockRunner from '@ondc/automation-mock-runner';
+import MockRunner, { GraphExecutorV2 } from '@ondc/automation-mock-runner';
 
 validateEnv();
 
@@ -47,8 +47,8 @@ const allowedFetchBaseUrls = [
 ].filter((u): u is string => !!u);
 if (allowedFetchBaseUrls.length > 0) {
     MockRunner.initSharedRunner({ allowedFetchBaseUrls });
+    // Studio live sessions run on the graph executor's own sandbox pool.
+    GraphExecutorV2.initSharedRunner({ allowedFetchBaseUrls });
 }
 
-
 logger.info('Main container initialized successfully');
-

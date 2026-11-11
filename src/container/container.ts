@@ -1,4 +1,12 @@
 import { ICacheService } from '../cache/cache-interface';
+import {
+    createStudioLiveAdvanceJobHandler,
+    createStudioLiveSendJobHandler,
+    LiveAdvanceJobParams,
+    LiveSendJobParams,
+    STUDIO_LIVE_ADVANCE_JOB,
+    STUDIO_LIVE_SEND_JOB,
+} from '../service/studio-live/live-session';
 import { IQueueService } from '../queue/IQueueService';
 import { createCache } from '../cache/cache-factory';
 import {
@@ -185,6 +193,24 @@ class ServiceContainer {
         queue.process<ApiServiceFormRequestJobParams>(
             API_SERVICE_FORM_REQUEST_JOB,
             createApiServiceFormRequestJobHandler()
+        );
+        // Protocol Studio live sessions: advance a graph-v2 run (see service/studio-live).
+        queue.process<LiveAdvanceJobParams>(
+            STUDIO_LIVE_ADVANCE_JOB,
+            createStudioLiveAdvanceJobHandler(() => ({
+                cache: this.getCacheService0(),
+                workbench: this.getWorkbenchCacheService(),
+                queue,
+            }))
+        );
+        // ... and send its payloads, keeping what the api-service answered on the run.
+        queue.process<LiveSendJobParams>(
+            STUDIO_LIVE_SEND_JOB,
+            createStudioLiveSendJobHandler(() => ({
+                cache: this.getCacheService0(),
+                workbench: this.getWorkbenchCacheService(),
+                queue,
+            }))
         );
 
         // ? Register event handlers
