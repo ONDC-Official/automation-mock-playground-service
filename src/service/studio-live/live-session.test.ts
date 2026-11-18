@@ -1,3 +1,4 @@
+import { setImmediate } from 'timers';
 import MockRunner, {
     GraphExecutorV2,
     type GraphNodeV2,
@@ -27,6 +28,7 @@ import {
     STUDIO_LIVE_SEND_JOB,
     createStudioLiveSendJobHandler,
     describeDelivery,
+    EXECUTOR_TTL_MS,
     LiveSendJobParams,
 } from './live-session';
 
@@ -746,6 +748,94 @@ describe('Studio live sessions (graph-v2)', () => {
         expect(go.jobIds).toHaveLength(1);
         const sent = await drain();
         expect(sent[0].payload.message.inputs).toEqual({ city: 'std:080' });
+    });
+
+    describe('executor cache', () => {
+        // Only the timers: the cache and the lib run on promises and immediates.
+        const fakeTimers = () =>
+            jest.useFakeTimers({
+                doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'],
+            });
+        afterEach(() => {
+            clearLiveExecutors();
+            jest.useRealTimers();
+        });
+
+        /** Counts reads of the session's graph document; `hold` can delay one. */
+        const watchDocReads = (
+            cache: ICacheService,
+            hold?: (read: number) => Promise<unknown> | undefined
+        ) => {
+            let reads = 0;
+            const get = cache.get.bind(cache);
+            cache.get = (async (key: string, schema: never) => {
+                if (key === liveConfigKey('sess-1')) {
+                    reads += 1;
+                    const held = hold?.(reads);
+                    if (held) return held;
+                }
+                return get(key, schema);
+            }) as ICacheService['get'];
+            return () => reads;
+        };
+        const flush = () => new Promise(resolve => setImmediate(resolve));
+
+        it('evicts a session’s executor after its TTL, so the document is read again', async () => {
+            fakeTimers();
+            // The participant opens the journey: starting it only builds the executor.
+            const { deps, cache } = await setup('BAP');
+            const reads = watchDocReads(cache);
+            const start = () =>
+                startLiveFlow(deps, {
+                    sessionId: 'sess-1',
+                    journeyId: 'happy',
+                });
+
+            await start();
+            await start();
+            expect(reads()).toBe(1);
+            jest.advanceTimersByTime(EXECUTOR_TTL_MS - 1);
+            await start();
+            expect(reads()).toBe(1);
+            jest.advanceTimersByTime(1);
+            await start();
+            expect(reads()).toBe(2);
+
+            // One timer per cached executor, and clearing drops it.
+            expect(jest.getTimerCount()).toBe(1);
+            clearLiveExecutors();
+            expect(jest.getTimerCount()).toBe(0);
+        });
+
+        it('drops a failed build, but not a newer one built after an eviction', async () => {
+            fakeTimers();
+            const { deps, cache } = await setup('BAP');
+            let missing!: (value: null) => void;
+            // The first read hangs, then finds no document: that build fails.
+            const reads = watchDocReads(cache, read =>
+                read === 1
+                    ? new Promise<null>(resolve => (missing = resolve))
+                    : undefined
+            );
+            const start = () =>
+                startLiveFlow(deps, {
+                    sessionId: 'sess-1',
+                    journeyId: 'happy',
+                });
+
+            const first = start();
+            while (reads() < 1) await flush();
+            // Evicted while still building; the next start builds again and succeeds.
+            jest.advanceTimersByTime(EXECUTOR_TTL_MS);
+            expect((await start()).success).toBe(true);
+            expect(reads()).toBe(2);
+
+            missing(null);
+            await expect(first).rejects.toThrow(/No live graph document/);
+            // The failed build did not take the newer executor with it.
+            await start();
+            expect(reads()).toBe(2);
+        });
     });
 
     it('refuses to proceed while the flow is being processed', async () => {

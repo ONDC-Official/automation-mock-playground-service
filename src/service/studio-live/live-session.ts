@@ -50,7 +50,7 @@ export const STUDIO_LIVE_ADVANCE_JOB = 'STUDIO_LIVE_ADVANCE_JOB';
 /** How many steps one advance may take before it stops (a cycle with no repeat cap). */
 const ADVANCE_LIMIT = 50;
 /** How long a session's executor is kept before the document is read again. */
-const EXECUTOR_TTL_MS = 5 * 60 * 1000;
+export const EXECUTOR_TTL_MS = 5 * 60 * 1000;
 const RUN_TTL_SECONDS = 60 * 60 * 5;
 const LOG_LIMIT = 200;
 
@@ -193,13 +193,50 @@ type Loaded = {
     plays: PlaysV2;
 };
 
+/**
+ * Each session's executor, built once from its graph document and evicted
+ * EXECUTOR_TTL_MS later (v1's runner cache does the same, service/cache/config-cache.ts):
+ * the next load reads the document again, and a session nobody runs any more
+ * stops holding its graph in memory.
+ */
 const executors = new Map<
     string,
-    { at: number; promise: Promise<Omit<Loaded, 'session'>> }
+    { promise: Promise<Omit<Loaded, 'session'>> }
 >();
+const executorTimers = new Map<string, NodeJS.Timeout>();
+
+const cacheExecutor = (
+    sessionId: string,
+    promise: Promise<Omit<Loaded, 'session'>>
+) => {
+    const existing = executorTimers.get(sessionId);
+    if (existing) clearTimeout(existing);
+    executors.set(sessionId, { promise });
+    const timer = setTimeout(() => {
+        executors.delete(sessionId);
+        executorTimers.delete(sessionId);
+    }, EXECUTOR_TTL_MS);
+    timer.unref();
+    executorTimers.set(sessionId, timer);
+};
+
+/** Drops a session's executor, but only if it is still the one built by `promise`. */
+const dropExecutor = (
+    sessionId: string,
+    promise: Promise<Omit<Loaded, 'session'>>
+) => {
+    if (executors.get(sessionId)?.promise !== promise) return;
+    clearTimeout(executorTimers.get(sessionId));
+    executorTimers.delete(sessionId);
+    executors.delete(sessionId);
+};
 
 /** Drops cached executors (tests; a session whose document changed). */
-export const clearLiveExecutors = () => executors.clear();
+export const clearLiveExecutors = () => {
+    for (const timer of executorTimers.values()) clearTimeout(timer);
+    executorTimers.clear();
+    executors.clear();
+};
 
 const getSession = async (deps: LiveDeps, sessionId: string) =>
     deps.workbench.NpSessionalCacheService().getSessionData(sessionId);
@@ -256,13 +293,15 @@ const load = async (deps: LiveDeps, sessionId: string): Promise<Loaded> => {
     const session = await getSession(deps, sessionId);
     if (!(await isLiveSession(deps, sessionId, session)))
         throw new Error(`Session ${sessionId} is not a graph-v2 live session`);
-    const cached = executors.get(sessionId);
-    if (!cached || Date.now() - cached.at > EXECUTOR_TTL_MS) {
-        const promise = buildExecutor(deps, sessionId, session);
-        executors.set(sessionId, { at: Date.now(), promise });
-        promise.catch(() => executors.delete(sessionId));
+    let promise = executors.get(sessionId)?.promise;
+    if (!promise) {
+        const built = buildExecutor(deps, sessionId, session);
+        cacheExecutor(sessionId, built);
+        // A failed build is not kept, but a newer one (after an eviction) is left alone.
+        built.catch(() => dropExecutor(sessionId, built));
+        promise = built;
     }
-    return { ...(await executors.get(sessionId)!.promise), session };
+    return { ...(await promise), session };
 };
 
 const journeyOf = (doc: LiveGraphConfigV2, journeyId: string): JourneyV2 => {
