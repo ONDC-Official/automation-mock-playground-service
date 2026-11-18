@@ -8,6 +8,7 @@ import {
     LiveGraphConfigV2Schema,
     planV2,
     receiveV2,
+    settleV2,
     stepV2,
     triggerV2,
     type DriverLogV2,
@@ -584,13 +585,14 @@ export const startLiveFlow = async (
         await saveLiveSettings(deps, sessionId, { stepThrough });
     const subscriberUrl = session.subscriberUrl;
 
-    // Who opens the journey decides who owns its transaction_id. Plan on a throwaway
-    // run first; nothing is stored until that is known.
-    const opening = planV2(
+    // Who opens the journey decides who owns its transaction_id. Settle a throwaway
+    // run first, past the journey's skips and the decisions (nobody sends those), and
+    // see what it does next; nothing is stored until that is known.
+    const { plan: opening } = await settleV2(
         executor,
         createGraphRunV2(executor, { transactionId: 'unassigned', journey }),
         journey,
-        plays
+        { plays }
     );
     if (opening.kind === 'await')
         return awaitParticipant(
@@ -1104,13 +1106,27 @@ export const receiveLivePayload = async (
                 logs: [],
                 updatedAt: new Date().toISOString(),
             };
-            if (!stored)
+            if (!stored) {
+                // The participant opens the journey: settle the new run past the
+                // skips and decisions before its first request, as start did when it
+                // armed the expectation, so that request is the step the run waits for.
+                const settled = await settleV2(
+                    executor,
+                    record.state,
+                    journey,
+                    { plays }
+                );
+                record = withLogs(
+                    { ...record, state: settled.state },
+                    settled.steps.flatMap(step => step.logs)
+                );
                 await markFlowOnSession(
                     deps,
                     found.sessionId,
                     found.journeyId,
                     transactionId
                 );
+            }
 
             const reject = async (reason: string) => {
                 record = withLogs(

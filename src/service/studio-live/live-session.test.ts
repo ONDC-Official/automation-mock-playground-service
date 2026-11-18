@@ -328,6 +328,130 @@ describe('Studio live sessions (graph-v2)', () => {
         ]);
     });
 
+    describe('who opens a journey', () => {
+        /** As BPP: the participant's search should open each of these journeys. */
+        const opensWithParticipant = async (
+            nodes: GraphNodeV2[],
+            shape: DocShape,
+            firstRuns: string[]
+        ) => {
+            const { deps, drain, cache } = await setup('BAP', nodes, shape);
+            const started = await startLiveFlow(deps, {
+                sessionId: 'sess-1',
+                journeyId: 'happy',
+                transactionId: 'tx-from-page',
+            });
+            // An expectation, and no transaction minted by the mock.
+            expect(started).toMatchObject({
+                success: true,
+                awaiting: { nodeId: 'search', api: 'search' },
+            });
+            expect(started.transactionId).toBeUndefined();
+            expect(
+                await cache.get(
+                    liveRunKey('tx-from-page', NP),
+                    SessionCacheSchema
+                )
+            ).toBeNull();
+            const expectations: any = await cache.get(NP, SessionCacheSchema);
+            expect(expectations.activeSessions).toEqual([
+                expect.objectContaining({ expectedAction: 'search' }),
+            ]);
+
+            // The participant's first request is the step the new run waits for.
+            await consumeExpectation(cache, 'tx-buyer');
+            const got = await receiveLivePayload(
+                deps,
+                fromNp('search', 'm-search', { transaction_id: 'tx-buyer' }),
+                NP
+            );
+            expect(got).toMatchObject({ kind: 'accepted', nodeId: 'search' });
+            expect((await drain()).map(s => s.action)).toEqual(['on_search']);
+            const status = await getLiveFlowStatus(deps, 'sess-1', 'tx-buyer');
+            expect(status.state.runs.map(r => r.nodeId)).toEqual([
+                ...firstRuns,
+                'search',
+                'on_search',
+            ]);
+        };
+
+        it('a journey that opens with a decision waits for the participant', async () => {
+            const who: GraphNodeV2 = {
+                id: 'who',
+                api: 'decision',
+                owner: 'BPP',
+                kind: 'decision',
+                cases: ['known', 'unknown'],
+                code: {
+                    decide: b64(
+                        'function decide(sessionData) { return "known"; }'
+                    ),
+                },
+            };
+            await opensWithParticipant(
+                [who, LINEAR[0], LINEAR[1]],
+                {
+                    edges: [
+                        {
+                            id: 'a',
+                            from: 'who',
+                            to: 'search',
+                            kind: 'branch',
+                            case: 'known',
+                        },
+                        {
+                            id: 'b',
+                            from: 'who',
+                            to: 'on_search',
+                            kind: 'branch',
+                            case: 'unknown',
+                        },
+                        {
+                            id: 'c',
+                            from: 'search',
+                            to: 'on_search',
+                            kind: 'response',
+                        },
+                    ],
+                    journeys: [
+                        {
+                            id: 'happy',
+                            entry: 'who',
+                            choices: {},
+                            expects: { who: 'known' },
+                            onDemand: [],
+                        },
+                    ],
+                },
+                ['who']
+            );
+        });
+
+        it('a journey that skips its optional first step waits for the participant', async () => {
+            // The mock (BPP) would send this, but the journey passes over it.
+            const note = node('note', 'on_status', {
+                kind: 'unsolicited',
+                optional: true,
+            });
+            await opensWithParticipant(
+                [note, LINEAR[0], LINEAR[1]],
+                {
+                    journeys: [
+                        {
+                            id: 'happy',
+                            entry: 'note',
+                            choices: {},
+                            expects: {},
+                            onDemand: [],
+                            skips: ['note'],
+                        },
+                    ],
+                },
+                ['note']
+            );
+        });
+    });
+
     describe('step-through (v1 Experimental Mode, manual steps)', () => {
         it('sends one payload per click and holds its answer to the participant', async () => {
             const { deps, drain } = await setup('BPP');
