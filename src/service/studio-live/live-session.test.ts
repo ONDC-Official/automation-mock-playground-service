@@ -47,6 +47,9 @@ const INVALID = b64(
 const REQUIREMENTS = b64(
     'function meetsRequirements(sessionData) { return { valid: true, code: 200, description: "ok" }; }'
 );
+const UNMET = b64(
+    'function meetsRequirements(sessionData) { return { valid: false, code: 30001, description: "no provider" }; }'
+);
 
 const node = (
     id: string,
@@ -449,6 +452,104 @@ describe('Studio live sessions (graph-v2)', () => {
                 },
                 ['note']
             );
+        });
+    });
+
+    describe('meetsRequirements', () => {
+        const unmet = (id: string, api: string, patch = {}) =>
+            node(id, api, {
+                code: {
+                    generate: GENERATE,
+                    validate: VALID,
+                    requirements: UNMET,
+                },
+                ...patch,
+            });
+        afterEach(() => {
+            delete process.env.SKIP_MEETS_REQUIRMENTS;
+        });
+
+        /** As BPP, with on_search's requirements unmet: the participant's search arrives. */
+        const searchArrives = async () => {
+            const world = await setup('BAP', [
+                LINEAR[0],
+                unmet('on_search', 'on_search', { responseFor: 'search' }),
+            ]);
+            await startLiveFlow(world.deps, {
+                sessionId: 'sess-1',
+                journeyId: 'happy',
+            });
+            await consumeExpectation(world.cache, 'tx-buyer');
+            await receiveLivePayload(
+                world.deps,
+                fromNp('search', 'm-search', { transaction_id: 'tx-buyer' }),
+                NP
+            );
+            return world;
+        };
+
+        it('answers a callback whose requirements are unmet with REQUIREMENTS_NOT_MET, and fails the run', async () => {
+            const { deps, drain } = await searchArrives();
+            const sent = await drain();
+            expect(sent.map(s => s.action)).toEqual(['on_search']);
+            expect(sent[0].payload.context.message_id).toBe('m-search');
+            expect(sent[0].payload.error).toMatchObject({
+                code: 'REQUIREMENTS_NOT_MET',
+                message: 'no provider',
+            });
+            expect(sent[0].payload.message).toBeUndefined();
+
+            const status = await getLiveFlowStatus(deps, 'sess-1', 'tx-buyer');
+            expect(status.state.failure).toMatchObject({
+                nodeId: 'on_search',
+                cause: 'requirements',
+            });
+            expect(status.plan).toEqual({
+                kind: 'stopped',
+                reason: 'failure',
+            });
+            expect(status.logs.map(l => l.message)).toContainEqual(
+                expect.stringMatching(
+                    /The run failed at on_search · cause: requirements/
+                )
+            );
+        });
+
+        it('sends nothing for a request whose requirements are unmet', async () => {
+            const { deps, drain } = await setup('BPP', [
+                LINEAR[0],
+                LINEAR[1],
+                unmet('select', 'select'),
+                LINEAR[3],
+            ]);
+            await startLiveFlow(deps, {
+                sessionId: 'sess-1',
+                journeyId: 'happy',
+                transactionId: 'tx-1',
+            });
+            const [search] = await drain();
+            await receiveLivePayload(
+                deps,
+                fromNp('on_search', search.payload.context.message_id),
+                NP
+            );
+            expect(await drain()).toEqual([]);
+            const status = await getLiveFlowStatus(deps, 'sess-1', 'tx-1');
+            expect(status.state.failure).toMatchObject({
+                nodeId: 'select',
+                cause: 'requirements',
+            });
+        });
+
+        it('is not run at all with SKIP_MEETS_REQUIRMENTS=true, as in v1', async () => {
+            process.env.SKIP_MEETS_REQUIRMENTS = 'true';
+            const { deps, drain } = await searchArrives();
+            const sent = await drain();
+            expect(sent.map(s => s.action)).toEqual(['on_search']);
+            expect(sent[0].payload.error).toBeUndefined();
+            expect(sent[0].payload.message).toEqual({ from: 'on_search' });
+            const status = await getLiveFlowStatus(deps, 'sess-1', 'tx-buyer');
+            expect(status.state.failure).toBeNull();
         });
     });
 

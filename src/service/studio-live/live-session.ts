@@ -778,7 +778,9 @@ export const proceedLiveFlow = async (
                 const ask = await triggerV2(
                     executor,
                     record.state,
-                    triggerExtra
+                    triggerExtra,
+                    undefined,
+                    { plays, skipRequirements: skipRequirements() }
                 );
                 if (ask.pending?.kind === 'inputs' && inputs === undefined)
                     return {
@@ -865,6 +867,36 @@ const isOutgoing = (run: StepRunV2 | undefined) =>
     !!run.event.payload;
 
 /**
+ * A step a failing `meetsRequirements` blocked that still answers the participant:
+ * the lib gives a callback v1's REQUIREMENTS_NOT_MET (or _CHECK_ERROR) error payload,
+ * on its request's message_id. A blocked request has no event, so it sends nothing.
+ */
+const isRequirementsAnswer = (run: StepRunV2 | undefined) =>
+    !!run?.requirementsFailed &&
+    run.event?.direction === 'out' &&
+    !!run.event.payload;
+
+/** v1's switch (service/jobs/generate-response.ts): don't run meetsRequirements at all. */
+const skipRequirements = () => process.env.SKIP_MEETS_REQUIRMENTS === 'true';
+
+/** A line for the run log when a step has just failed the run, naming the rule that did. */
+const failureLogs = (
+    before: GraphRunStateV2,
+    after: GraphRunStateV2
+): DriverLogV2[] => {
+    const failure = after.failure;
+    if (!failure || before.failure) return [];
+    return [
+        {
+            level: 'error',
+            message: `The run failed at ${failure.nodeId}${
+                failure.cause ? ` · cause: ${failure.cause}` : ''
+            } · ${failure.reason}`,
+        },
+    ];
+};
+
+/**
  * The advance job: runs the mock's steps until the run waits (for the
  * participant, the tester, a form) or ends, sending each generated payload
  * through the api-service in order. Holds the flow WORKING meanwhile, as v1's
@@ -924,6 +956,9 @@ const advanceRun = async (
     const journey = journeyOf(doc, record.journeyId);
     const outgoing: LiveSendJobParams[] = [];
     const send = (run: StepRunV2) => {
+        const error = isRequirementsAnswer(run)
+            ? (run.event!.payload as { error?: { code?: string } }).error?.code
+            : undefined;
         outgoing.push({
             action: run.event!.api,
             domain: executor.options.domain,
@@ -938,20 +973,25 @@ const advanceRun = async (
             live: {
                 transactionId: data.transactionId,
                 subscriberUrl: data.subscriberUrl,
-                label: `${run.nodeId} (${run.event!.api})`,
+                label: error
+                    ? `error ${run.event!.api} for ${run.nodeId} (${error})`
+                    : `${run.nodeId} (${run.event!.api})`,
             },
         });
     };
 
     if (data.triggerExtra) {
+        // A blocked on-demand step fails only its own run, not the run's path.
         const out = await triggerV2(
             executor,
             record.state,
             data.triggerExtra,
-            data.inputs
+            data.inputs,
+            { plays, skipRequirements: skipRequirements() }
         );
         record = withLogs({ ...record, state: out.state }, out.logs);
-        if (isOutgoing(out.run)) send(out.run!);
+        if (isOutgoing(out.run) || isRequirementsAnswer(out.run))
+            send(out.run!);
         await saveRecord(deps, record);
         return { outgoing, plan: null, npType: session.npType };
     }
@@ -984,6 +1024,7 @@ const advanceRun = async (
         }
         const step = await stepV2(executor, record.state, journey, {
             plays,
+            skipRequirements: skipRequirements(),
             ...(i === 0 && data.inputs !== undefined
                 ? { inputs: data.inputs }
                 : {}),
@@ -991,9 +1032,15 @@ const advanceRun = async (
                 ? { formData: data.formData }
                 : {}),
         });
-        record = withLogs({ ...record, state: step.state }, step.logs);
+        record = withLogs({ ...record, state: step.state }, [
+            ...step.logs,
+            ...failureLogs(record.state, step.state),
+        ]);
         plan = step.plan;
         if (step.outcome === 'ran' && isOutgoing(step.run)) send(step.run!);
+        // Blocked by meetsRequirements: the run fails, but a callback still answers.
+        if (step.outcome === 'failed' && isRequirementsAnswer(step.run))
+            send(step.run!);
         if (step.outcome !== 'ran') break;
     }
     await saveRecord(deps, record);
@@ -1116,10 +1163,10 @@ export const receiveLivePayload = async (
                     journey,
                     { plays }
                 );
-                record = withLogs(
-                    { ...record, state: settled.state },
-                    settled.steps.flatMap(step => step.logs)
-                );
+                record = withLogs({ ...record, state: settled.state }, [
+                    ...settled.steps.flatMap(step => step.logs),
+                    ...failureLogs(record.state, settled.state),
+                ]);
                 await markFlowOnSession(
                     deps,
                     found.sessionId,
