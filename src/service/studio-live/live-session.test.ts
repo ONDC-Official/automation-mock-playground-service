@@ -29,6 +29,7 @@ import {
     createStudioLiveSendJobHandler,
     describeDelivery,
     EXECUTOR_TTL_MS,
+    withRunLock,
     LiveSendJobParams,
 } from './live-session';
 
@@ -63,23 +64,36 @@ const node = (
     ...patch,
 });
 
-const doc = (nodes: GraphNodeV2[]): LiveGraphConfigV2 => ({
+type Graph = LiveGraphConfigV2['graph'];
+
+/** `next` wires through the nodes in order. */
+const chain = (nodes: GraphNodeV2[]): Graph['edges'] =>
+    nodes.slice(1).map((n, i) => ({
+        id: `e${i}`,
+        from: nodes[i].id,
+        to: n.id,
+        kind: 'next' as const,
+    }));
+
+type DocShape = {
+    /** Default: a chain through every node. */
+    edges?: Graph['edges'];
+    /** Default: one journey, `happy`, from the first node. */
+    journeys?: LiveGraphConfigV2['journeys'];
+};
+
+const doc = (
+    nodes: GraphNodeV2[],
+    { edges, journeys }: DocShape = {}
+): LiveGraphConfigV2 => ({
     kind: 'graph-v2-live',
     meta: { domain: 'ONDC:TRV14', version: '2.0.0', playground_version: 'v2' },
     transaction_data: {
         transaction_id: 'tx-config',
         latest_timestamp: '2025-01-01T00:00:00.000Z',
     },
-    graph: {
-        nodes,
-        edges: nodes.slice(1).map((n, i) => ({
-            id: `e${i}`,
-            from: nodes[i].id,
-            to: n.id,
-            kind: 'next' as const,
-        })),
-    },
-    journeys: [
+    graph: { nodes, edges: edges ?? chain(nodes) },
+    journeys: journeys ?? [
         {
             id: 'happy',
             title: 'Happy path',
@@ -113,7 +127,11 @@ const recordingQueue = (jobs: Job[]): IQueueService => ({
     },
 });
 
-const setup = async (npType: 'BAP' | 'BPP', nodes: GraphNodeV2[] = LINEAR) => {
+const setup = async (
+    npType: 'BAP' | 'BPP',
+    nodes: GraphNodeV2[] = LINEAR,
+    shape: DocShape = {}
+) => {
     clearLiveExecutors();
     const cache: ICacheService = createCache('mock');
     const jobs: Job[] = [];
@@ -138,7 +156,11 @@ const setup = async (npType: 'BAP' | 'BPP', nodes: GraphNodeV2[] = LINEAR) => {
         },
         SessionCacheSchema
     );
-    await cache.set(liveConfigKey('sess-1'), doc(nodes), SessionCacheSchema);
+    await cache.set(
+        liveConfigKey('sess-1'),
+        doc(nodes, shape),
+        SessionCacheSchema
+    );
     /** Runs the advance jobs enqueued so far; returns the payloads sent. */
     const drain = async () => {
         const sent: { action: string; payload: any; query: any }[] = [];
@@ -855,5 +877,351 @@ describe('Studio live sessions (graph-v2)', () => {
         expect(busy).toMatchObject({ success: false });
         expect(busy.message).toMatch(/already being processed/);
         await drain();
+    });
+
+    describe('one writer per run', () => {
+        const RUN = liveRunKey('tx-1', NP);
+        const FLOW_STATUS = `FLOW_STATUS_tx-1::${NP}`;
+        /** The participant (BPP) may send on_status at any point. */
+        const ON_STATUS = node('on_status', 'on_status', { kind: 'on_demand' });
+        const WITH_STATUS = { edges: chain(LINEAR) };
+
+        /**
+         * Counts cache calls per key, and holds a chosen one until released: a write
+         * is held before it writes, a read after it read (it then returns what it
+         * read). That is how each test parks one writer mid-update.
+         */
+        const watchCache = (cache: ICacheService) => {
+            const counts = new Map<string, number>();
+            const holds: {
+                id: string;
+                nth: number;
+                gate: Promise<void>;
+                reached: () => void;
+            }[] = [];
+            for (const method of ['get', 'set'] as const) {
+                const original = cache[method].bind(cache) as (
+                    key: string,
+                    ...rest: unknown[]
+                ) => Promise<unknown>;
+                (cache as unknown as Record<string, unknown>)[method] = async (
+                    key: string,
+                    ...rest: unknown[]
+                ) => {
+                    const id = `${method} ${key}`;
+                    const n = (counts.get(id) ?? 0) + 1;
+                    counts.set(id, n);
+                    const hold = holds.find(h => h.id === id && h.nth === n);
+                    if (!hold) return original(key, ...rest);
+                    hold.reached();
+                    if (method === 'get') {
+                        const value = await original(key, ...rest);
+                        await hold.gate;
+                        return value;
+                    }
+                    await hold.gate;
+                    return original(key, ...rest);
+                };
+            }
+            return {
+                calls: (method: 'get' | 'set', key: string) =>
+                    counts.get(`${method} ${key}`) ?? 0,
+                /** Holds the `nth` call from now of `method` on `key`. */
+                hold(method: 'get' | 'set', key: string, nth = 1) {
+                    const id = `${method} ${key}`;
+                    let release!: () => void;
+                    let reached!: () => void;
+                    const gate = new Promise<void>(r => (release = r));
+                    const arrived = new Promise<void>(r => (reached = r));
+                    holds.push({
+                        id,
+                        nth: (counts.get(id) ?? 0) + nth,
+                        gate,
+                        reached,
+                    });
+                    return { reached: arrived, release };
+                },
+            };
+        };
+
+        /**
+         * Lets other work run until `done()`, or for `ms` at most: the time a racing
+         * call gets to overtake the held one when nothing stops it.
+         */
+        const runUntil = async (done: () => boolean, ms = 250) => {
+            const end = Date.now() + ms;
+            while (!done() && Date.now() < end)
+                await new Promise(resolve => setTimeout(resolve, 5));
+        };
+
+        const flowStatusOf = async (deps: LiveDeps) =>
+            (
+                await deps.workbench
+                    .FlowStatusCacheService()
+                    .getFlowStatus('tx-1', NP, {})
+            ).status;
+
+        it('serialises per key, lets other keys through, and is released by a throw', async () => {
+            const order: string[] = [];
+            let release!: () => void;
+            const gate = new Promise<void>(r => (release = r));
+            const a = withRunLock('k', async () => {
+                order.push('a');
+                await gate;
+                throw new Error('a failed');
+            });
+            const b = withRunLock('k', async () => order.push('b'));
+            await withRunLock('other', async () => order.push('other'));
+            expect(order).toEqual(['a', 'other']);
+            release();
+            await expect(a).rejects.toThrow('a failed');
+            await b;
+            expect(order).toEqual(['a', 'other', 'b']);
+        });
+
+        it('keeps both steps when two payloads arrive together', async () => {
+            const { deps, drain, cache } = await setup(
+                'BPP',
+                [...LINEAR, ON_STATUS],
+                WITH_STATUS
+            );
+            await startLiveFlow(deps, {
+                sessionId: 'sess-1',
+                journeyId: 'happy',
+                transactionId: 'tx-1',
+            });
+            const [search] = await drain();
+            const watch = watchCache(cache);
+
+            // The first payload's save is held; the second arrives meanwhile.
+            const held = watch.hold('set', RUN);
+            const first = receiveLivePayload(
+                deps,
+                fromNp('on_search', search.payload.context.message_id),
+                NP
+            );
+            await held.reached;
+            const reads = watch.calls('get', RUN);
+            const second = receiveLivePayload(
+                deps,
+                fromNp('on_status', 'm-status'),
+                NP
+            );
+            // Unlocked, the second reads the run (findLiveRun, then to update it).
+            await runUntil(() => watch.calls('get', RUN) >= reads + 2);
+            held.release();
+
+            expect(await first).toMatchObject({
+                kind: 'accepted',
+                nodeId: 'on_search',
+            });
+            expect(await second).toMatchObject({
+                kind: 'accepted',
+                nodeId: 'on_status',
+            });
+            const status = await getLiveFlowStatus(deps, 'sess-1', 'tx-1');
+            expect(status.state.runs.map(r => r.nodeId)).toEqual([
+                'search',
+                'on_search',
+                'on_status',
+            ]);
+        });
+
+        it('keeps a payload that arrives while an advance runs', async () => {
+            const { deps, drain, jobs, cache } = await setup(
+                'BPP',
+                [...LINEAR, ON_STATUS],
+                WITH_STATUS
+            );
+            await startLiveFlow(deps, {
+                sessionId: 'sess-1',
+                journeyId: 'happy',
+                transactionId: 'tx-1',
+            });
+            const [search] = await drain();
+            await receiveLivePayload(
+                deps,
+                fromNp('on_search', search.payload.context.message_id),
+                NP
+            );
+            // The advance that answers on_search with select: its save is held.
+            const advance = jobs.shift()!;
+            expect(advance.name).toBe(STUDIO_LIVE_ADVANCE_JOB);
+            const watch = watchCache(cache);
+            const held = watch.hold('set', RUN);
+            const advancing = advanceLiveFlow(
+                deps,
+                advance.data as LiveAdvanceJobParams
+            );
+            await held.reached;
+            const reads = watch.calls('get', RUN);
+            const receiving = receiveLivePayload(
+                deps,
+                fromNp('on_status', 'm-status'),
+                NP
+            );
+            await runUntil(() => watch.calls('get', RUN) >= reads + 2);
+            held.release();
+
+            expect(await advancing).toMatchObject({ sent: 1 });
+            expect(await receiving).toMatchObject({
+                kind: 'accepted',
+                nodeId: 'on_status',
+            });
+            const status = await getLiveFlowStatus(deps, 'sess-1', 'tx-1');
+            expect(status.state.runs.map(r => r.nodeId)).toEqual([
+                'search',
+                'on_search',
+                'select',
+                'on_status',
+            ]);
+            expect(
+                jobs
+                    .filter(j => j.name === STUDIO_LIVE_SEND_JOB)
+                    .map(j => (j.data as LiveSendJobParams).action)
+            ).toEqual(['select']);
+        });
+
+        /** Step-through, paused before select: a Run step click queues one advance. */
+        const pausedBeforeSelect = async () => {
+            const world = await setup('BPP');
+            await startLiveFlow(world.deps, {
+                sessionId: 'sess-1',
+                journeyId: 'happy',
+                transactionId: 'tx-1',
+                stepThrough: true,
+            });
+            const [search] = await world.drain();
+            await receiveLivePayload(
+                world.deps,
+                fromNp('on_search', search.payload.context.message_id),
+                NP
+            );
+            expect(await world.drain()).toEqual([]);
+            expect(
+                (await getLiveFlowStatus(world.deps, 'sess-1', 'tx-1')).paused
+            ).toBe('select');
+            return world;
+        };
+        const runStep = (deps: LiveDeps) =>
+            proceedLiveFlow(deps, {
+                sessionId: 'sess-1',
+                transactionId: 'tx-1',
+            });
+
+        it('queues one advance for a double click', async () => {
+            const { deps, jobs, cache } = await pausedBeforeSelect();
+            const watch = watchCache(cache);
+            // The first click's check under the lock (its second status read) is held.
+            const held = watch.hold('get', FLOW_STATUS, 2);
+            const first = runStep(deps);
+            await held.reached;
+            let secondDone = false;
+            const second = runStep(deps).finally(() => (secondDone = true));
+            // Unlocked, the second click claims the flow and queues its advance meanwhile.
+            await runUntil(() => secondDone);
+            held.release();
+
+            const answers = await Promise.all([first, second]);
+            expect(answers[0]).toMatchObject({
+                success: true,
+                message: 'Proceeding',
+            });
+            expect(answers[1]).toMatchObject({
+                success: false,
+                message: expect.stringMatching(/already being processed/),
+            });
+            expect(
+                jobs.filter(j => j.name === STUDIO_LIVE_ADVANCE_JOB)
+            ).toHaveLength(1);
+        });
+
+        it('claims the flow before queueing the advance, and frees it when queueing fails', async () => {
+            const { deps, jobs } = await pausedBeforeSelect();
+            const enqueue = deps.queue.enqueue;
+            let during: string | undefined;
+            deps.queue.enqueue = async () => {
+                during = await flowStatusOf(deps);
+                throw new Error('queue is down');
+            };
+            await expect(runStep(deps)).rejects.toThrow('queue is down');
+            expect(during).toBe('WORKING');
+            expect(await flowStatusOf(deps)).toBe('AVAILABLE');
+
+            // Not stuck: the next click goes through.
+            deps.queue.enqueue = enqueue;
+            expect(await runStep(deps)).toMatchObject({ success: true });
+            expect(await flowStatusOf(deps)).toBe('WORKING');
+            expect(jobs.map(j => j.name)).toEqual([STUDIO_LIVE_ADVANCE_JOB]);
+        });
+
+        it('sends nothing when the advance cannot save the run', async () => {
+            const { deps, jobs, cache } = await setup('BPP');
+            await startLiveFlow(deps, {
+                sessionId: 'sess-1',
+                journeyId: 'happy',
+                transactionId: 'tx-1',
+            });
+            const advance = jobs.shift()!;
+            const set = cache.set.bind(cache);
+            cache.set = (async (key: string, ...rest: never[]) => {
+                if (key === RUN) throw new Error('redis is down');
+                return (set as (...args: unknown[]) => Promise<void>)(
+                    key,
+                    ...rest
+                );
+            }) as ICacheService['set'];
+            await expect(
+                advanceLiveFlow(deps, advance.data as LiveAdvanceJobParams)
+            ).rejects.toThrow('redis is down');
+            expect(jobs).toEqual([]);
+            expect(await flowStatusOf(deps)).toBe('AVAILABLE');
+        });
+
+        it('queues payloads after the run is saved and the lock is free', async () => {
+            const { deps, jobs } = await setup('BPP');
+            await startLiveFlow(deps, {
+                sessionId: 'sess-1',
+                journeyId: 'happy',
+                transactionId: 'tx-1',
+            });
+            const advance = jobs.shift()!;
+            // A queue may run work inside enqueue (the e2e engine driver does): here the
+            // participant answers search, and the tester clicks, before enqueue returns.
+            const enqueue = deps.queue.enqueue;
+            const inside: unknown[] = [];
+            deps.queue.enqueue = async (name, data, options) => {
+                if (name === STUDIO_LIVE_SEND_JOB && inside.length === 0) {
+                    const sent = data as LiveSendJobParams;
+                    const context = (
+                        sent.payload as { context: { message_id: string } }
+                    ).context;
+                    inside.push(
+                        await receiveLivePayload(
+                            deps,
+                            fromNp('on_search', context.message_id),
+                            NP
+                        )
+                    );
+                    inside.push(await runStep(deps));
+                }
+                return enqueue(name, data, options);
+            };
+            expect(
+                await advanceLiveFlow(
+                    deps,
+                    advance.data as LiveAdvanceJobParams
+                )
+            ).toMatchObject({ sent: 1 });
+            // The run already had search, and the flow was still being processed.
+            expect(inside[0]).toMatchObject({
+                kind: 'accepted',
+                nodeId: 'on_search',
+            });
+            expect(inside[1]).toMatchObject({
+                success: false,
+                message: expect.stringMatching(/already being processed/),
+            });
+        });
     });
 });

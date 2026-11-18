@@ -311,6 +311,42 @@ const journeyOf = (doc: LiveGraphConfigV2, journeyId: string): JourneyV2 => {
     return journey;
 };
 
+const runLocks = new Map<string, Promise<void>>();
+
+/**
+ * One writer per run. Each entry point that reads a run record, changes it and
+ * writes it back (start, proceed, the advance job, a participant's payload) does
+ * so under this lock, keyed by the record's key (`liveRunKey`). Without it, two of
+ * them that read the same record each write back their own copy, and the steps the
+ * first one added are lost.
+ *
+ * In-process: a promise chain per key, enough while the mock runs as a single
+ * instance. Several instances would need a shared lock in ICacheService (Redis
+ * `SET key token NX PX ttl`, released by its token).
+ *
+ * Not re-entrant, so it is taken only at those entry points, never inside one.
+ * Nothing is enqueued while it is held either: a queue may run other work inside
+ * `enqueue` (the e2e engine driver runs test hooks there that call proceed), and
+ * the job itself takes the lock.
+ */
+export const withRunLock = async <T>(
+    key: string,
+    fn: () => Promise<T>
+): Promise<T> => {
+    const previous = runLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const held = new Promise<void>(resolve => (release = resolve));
+    const tail = previous.then(() => held);
+    runLocks.set(key, tail);
+    try {
+        await previous;
+        return await fn();
+    } finally {
+        release();
+        if (runLocks.get(key) === tail) runLocks.delete(key);
+    }
+};
+
 const getRecord = (
     deps: LiveDeps,
     transactionId: string,
@@ -567,30 +603,35 @@ export const startLiveFlow = async (
 
     // The mock opens the journey: the transaction is the mock's to mint.
     const transactionId = requested ?? randomUUID();
-    const record: LiveRunRecord = {
-        sessionId,
-        journeyId,
-        transactionId,
-        subscriberUrl,
-        state: createGraphRunV2(executor, { transactionId, journey }),
-        rejected: [],
-        logs: [
-            {
-                level: 'info',
-                message: `Live run started · ${journey.title ?? journey.id} · tx ${transactionId} · mock plays ${plays}`,
-                ts: new Date().toISOString(),
-            },
-        ],
-        updatedAt: new Date().toISOString(),
-    };
-    await saveRecord(deps, record);
-    await markFlowOnSession(deps, sessionId, journeyId, transactionId);
+    const answer = await withRunLock(
+        liveRunKey(transactionId, subscriberUrl),
+        async () => {
+            const record: LiveRunRecord = {
+                sessionId,
+                journeyId,
+                transactionId,
+                subscriberUrl,
+                state: createGraphRunV2(executor, { transactionId, journey }),
+                rejected: [],
+                logs: [
+                    {
+                        level: 'info',
+                        message: `Live run started · ${journey.title ?? journey.id} · tx ${transactionId} · mock plays ${plays}`,
+                        ts: new Date().toISOString(),
+                    },
+                ],
+                updatedAt: new Date().toISOString(),
+            };
+            await saveRecord(deps, record);
+            await markFlowOnSession(deps, sessionId, journeyId, transactionId);
 
-    const plan = planV2(executor, record.state, journey, plays);
-    if (!(plan.kind === 'inputs' && inputs !== undefined)) {
-        const answer = answerFor(plan, transactionId);
-        if (answer) return answer;
-    }
+            const plan = planV2(executor, record.state, journey, plays);
+            if (plan.kind === 'inputs' && inputs !== undefined) return null;
+            return answerFor(plan, transactionId);
+        }
+    );
+    if (answer) return answer;
+    // Outside the lock: the advance takes it.
     const jobId = await enqueueAdvance(deps, {
         sessionId,
         transactionId,
@@ -634,106 +675,164 @@ export const proceedLiveFlow = async (
     const subscriberUrl = session.subscriberUrl;
     if (stepThrough !== undefined)
         await saveLiveSettings(deps, sessionId, { stepThrough });
-    const record = await getRecord(deps, transactionId, subscriberUrl);
-    if (!record)
-        throw new Error(`No live run for transaction ${transactionId}`);
-    const journey = journeyOf(doc, record.journeyId);
-
-    const status = await deps.workbench
-        .FlowStatusCacheService()
-        .getFlowStatus(transactionId, subscriberUrl, {});
-    if (settingsOnly) {
-        const plan = planV2(executor, record.state, journey, plays);
-        // Turned off while paused: carry on as an ordinary run would.
-        if (
-            stepThrough === false &&
-            status.status !== 'WORKING' &&
-            plan.kind === 'run'
-        ) {
-            const jobId = await enqueueAdvance(deps, {
-                sessionId,
-                transactionId,
-                subscriberUrl,
-            });
-            return {
-                success: true,
-                message: 'Step-through is off · the run carries on',
-                transactionId,
-                jobIds: [jobId],
-            };
-        }
-        return { success: true, message: 'Settings saved', transactionId };
-    }
-    if (status.status === 'WORKING')
-        return {
-            success: false,
-            message: 'The flow is already being processed',
-            transactionId,
-        };
-
-    if (finish) {
-        const done = finishV2(executor, record.state, journey);
-        if (!done)
-            return {
-                success: false,
-                message: 'The run is not at an End node',
-                transactionId,
-            };
-        await saveRecord(
-            deps,
-            withLogs({ ...record, state: done }, [
-                { level: 'success', message: 'Run finished at an End node' },
-            ])
-        );
-        return { success: true, message: 'Run finished', transactionId };
-    }
-
-    if (triggerExtra) {
-        const node = executor.getNode(triggerExtra);
-        if (!node)
-            throw new Error(
-                `On-demand node ${triggerExtra} is not on the graph`
-            );
-        if (plays !== 'both' && node.owner !== plays)
-            return {
-                success: false,
-                message: `${triggerExtra} is the participant's to send`,
-                transactionId,
-            };
-        const ask = await triggerV2(executor, record.state, triggerExtra);
-        if (ask.pending?.kind === 'inputs' && inputs === undefined)
-            return {
-                success: true,
-                message: `${triggerExtra} needs inputs`,
-                transactionId,
-                inputs: {
-                    nodeId: triggerExtra,
-                    schema: ask.pending.schema,
-                    extra: true,
-                },
-            };
-    } else {
-        const plan = planV2(executor, record.state, journey, plays);
-        const answered =
-            (plan.kind === 'inputs' && inputs !== undefined) ||
-            (plan.kind === 'form' && formData !== undefined);
-        if (!answered) {
-            const answer = answerFor(plan, transactionId);
-            if (answer) return answer;
-        }
-    }
-
-    const jobId = await enqueueAdvance(deps, {
-        sessionId,
+    const flowStatus = deps.workbench.FlowStatusCacheService();
+    const isWorking = async () =>
+        (await flowStatus.getFlowStatus(transactionId, subscriberUrl, {}))
+            .status === 'WORKING';
+    const busy: LiveActionResult = {
+        success: false,
+        message: 'The flow is already being processed',
         transactionId,
-        subscriberUrl,
-        ...(inputs !== undefined ? { inputs } : {}),
-        ...(formData !== undefined ? { formData } : {}),
-        ...(triggerExtra ? { triggerExtra } : {}),
-    });
+    };
+    // Refused at once while an advance holds the flow, without waiting for the lock.
+    if (!settingsOnly && (await isWorking())) return busy;
+
+    const decided = await withRunLock(
+        liveRunKey(transactionId, subscriberUrl),
+        async (): Promise<
+            | { answer: LiveActionResult }
+            | { advance: LiveAdvanceJobParams; message: string }
+        > => {
+            const record = await getRecord(deps, transactionId, subscriberUrl);
+            if (!record)
+                throw new Error(`No live run for transaction ${transactionId}`);
+            const journey = journeyOf(doc, record.journeyId);
+            // Again under the lock: a proceed that held it may just have claimed the flow.
+            const working = await isWorking();
+            // The flow is claimed (WORKING) here, before the advance is queued rather
+            // than when it starts, so a second proceed is refused in between.
+            const claim = async (
+                advance: LiveAdvanceJobParams,
+                message: string
+            ) => {
+                await flowStatus.setFlowStatus(
+                    transactionId,
+                    subscriberUrl,
+                    'WORKING'
+                );
+                return { advance, message };
+            };
+
+            if (settingsOnly) {
+                const plan = planV2(executor, record.state, journey, plays);
+                // Turned off while paused: carry on as an ordinary run would.
+                if (stepThrough === false && !working && plan.kind === 'run')
+                    return claim(
+                        { sessionId, transactionId, subscriberUrl },
+                        'Step-through is off · the run carries on'
+                    );
+                return {
+                    answer: {
+                        success: true,
+                        message: 'Settings saved',
+                        transactionId,
+                    },
+                };
+            }
+            if (working) return { answer: busy };
+
+            if (finish) {
+                const done = finishV2(executor, record.state, journey);
+                if (!done)
+                    return {
+                        answer: {
+                            success: false,
+                            message: 'The run is not at an End node',
+                            transactionId,
+                        },
+                    };
+                await saveRecord(
+                    deps,
+                    withLogs({ ...record, state: done }, [
+                        {
+                            level: 'success',
+                            message: 'Run finished at an End node',
+                        },
+                    ])
+                );
+                return {
+                    answer: {
+                        success: true,
+                        message: 'Run finished',
+                        transactionId,
+                    },
+                };
+            }
+
+            if (triggerExtra) {
+                const node = executor.getNode(triggerExtra);
+                if (!node)
+                    throw new Error(
+                        `On-demand node ${triggerExtra} is not on the graph`
+                    );
+                if (plays !== 'both' && node.owner !== plays)
+                    return {
+                        answer: {
+                            success: false,
+                            message: `${triggerExtra} is the participant's to send`,
+                            transactionId,
+                        },
+                    };
+                const ask = await triggerV2(
+                    executor,
+                    record.state,
+                    triggerExtra
+                );
+                if (ask.pending?.kind === 'inputs' && inputs === undefined)
+                    return {
+                        answer: {
+                            success: true,
+                            message: `${triggerExtra} needs inputs`,
+                            transactionId,
+                            inputs: {
+                                nodeId: triggerExtra,
+                                schema: ask.pending.schema,
+                                extra: true,
+                            },
+                        },
+                    };
+            } else {
+                const plan = planV2(executor, record.state, journey, plays);
+                const answered =
+                    (plan.kind === 'inputs' && inputs !== undefined) ||
+                    (plan.kind === 'form' && formData !== undefined);
+                if (!answered) {
+                    const answer = answerFor(plan, transactionId);
+                    if (answer) return { answer };
+                }
+            }
+
+            return claim(
+                {
+                    sessionId,
+                    transactionId,
+                    subscriberUrl,
+                    ...(inputs !== undefined ? { inputs } : {}),
+                    ...(formData !== undefined ? { formData } : {}),
+                    ...(triggerExtra ? { triggerExtra } : {}),
+                },
+                'Proceeding'
+            );
+        }
+    );
+    if ('answer' in decided) return decided.answer;
+
+    // Outside the lock: the advance takes it.
+    let jobId: string;
+    try {
+        jobId = await enqueueAdvance(deps, decided.advance);
+    } catch (error) {
+        // No job will run to release the flow.
+        await flowStatus.setFlowStatus(
+            transactionId,
+            subscriberUrl,
+            'AVAILABLE'
+        );
+        throw error;
+    }
     return {
         success: true,
-        message: 'Proceeding',
+        message: decided.message,
         transactionId,
         jobIds: [jobId],
     };
@@ -768,6 +867,11 @@ const isOutgoing = (run: StepRunV2 | undefined) =>
  * participant, the tester, a form) or ends, sending each generated payload
  * through the api-service in order. Holds the flow WORKING meanwhile, as v1's
  * dispatch does, so a second proceed is refused rather than interleaved.
+ *
+ * Send after save: the steps run and the record is saved under the run lock; the
+ * payloads are queued only after that, outside the lock (and still WORKING). A
+ * payload never goes out for a run that was not stored, and the participant's
+ * answer to it cannot find the run without the step that sent it.
  */
 export const advanceLiveFlow = async (
     deps: LiveDeps,
@@ -780,105 +884,19 @@ export const advanceLiveFlow = async (
         'WORKING'
     );
     try {
-        const { doc, executor, session, plays } = await load(
-            deps,
-            data.sessionId
+        const { outgoing, plan, npType } = await withRunLock(
+            liveRunKey(data.transactionId, data.subscriberUrl),
+            () => advanceRun(deps, data)
         );
-        let record = await getRecord(
-            deps,
-            data.transactionId,
-            data.subscriberUrl
-        );
-        if (!record)
-            throw new Error(
-                `No live run for transaction ${data.transactionId}`
-            );
-        const journey = journeyOf(doc, record.journeyId);
-        let sent = 0;
-        const send = async (run: StepRunV2) => {
-            const params: LiveSendJobParams = {
-                action: run.event!.api,
-                domain: executor.options.domain,
-                version: executor.options.version,
-                payload: run.event!.payload,
-                subscriberUrl: data.subscriberUrl,
-                queryParams: {
-                    subscriber_url: data.subscriberUrl,
-                    flow_id: record!.journeyId,
-                    session_id: data.sessionId,
-                },
-                live: {
-                    transactionId: data.transactionId,
-                    subscriberUrl: data.subscriberUrl,
-                    label: `${run.nodeId} (${run.event!.api})`,
-                },
-            };
+        for (const params of outgoing)
             await deps.queue.enqueue(STUDIO_LIVE_SEND_JOB, params);
-            sent += 1;
-        };
-
-        if (data.triggerExtra) {
-            const out = await triggerV2(
-                executor,
-                record.state,
-                data.triggerExtra,
-                data.inputs
-            );
-            record = withLogs({ ...record, state: out.state }, out.logs);
-            if (isOutgoing(out.run)) await send(out.run!);
-            await saveRecord(deps, record);
-            return { sent, plan: null };
-        }
-
-        const { stepThrough } = await getLiveSettings(deps, data.sessionId);
-        let sends = data.sends ?? 1;
-        let plan: GraphPlanV2 | null = null;
-        for (let i = 0; i < ADVANCE_LIMIT; i += 1) {
-            if (stepThrough) {
-                // Pause before each payload the mock would send, once this job's are spent.
-                const ahead = planV2(executor, record.state, journey, plays);
-                const sending =
-                    (ahead.kind === 'run' && sendsPayload(ahead.node)) ||
-                    (ahead.kind === 'inputs' &&
-                        i === 0 &&
-                        data.inputs !== undefined);
-                if (sending) {
-                    if (sends <= 0) {
-                        plan = ahead;
-                        record = withLogs(record, [
-                            {
-                                level: 'info',
-                                message: `Paused before ${ahead.node.id} (${ahead.node.api}) · step-through is on: Run step sends it`,
-                            },
-                        ]);
-                        break;
-                    }
-                    sends -= 1;
-                }
-            }
-            const step = await stepV2(executor, record.state, journey, {
-                plays,
-                ...(i === 0 && data.inputs !== undefined
-                    ? { inputs: data.inputs }
-                    : {}),
-                ...(i === 0 && data.formData !== undefined
-                    ? { formData: data.formData }
-                    : {}),
-            });
-            record = withLogs({ ...record, state: step.state }, step.logs);
-            plan = step.plan;
-            if (step.outcome === 'ran' && isOutgoing(step.run))
-                await send(step.run!);
-            if (step.outcome !== 'ran') break;
-        }
-        await saveRecord(deps, record);
         logger.info('Studio live advance done', {
             transactionId: data.transactionId,
             sessionId: data.sessionId,
-            npType: session.npType,
-            sent,
+            npType,
+            sent: outgoing.length,
         });
-        return { sent, plan: plan ? summarisePlan(plan) : null };
+        return { sent: outgoing.length, plan };
     } finally {
         await flowStatus.setFlowStatus(
             data.transactionId,
@@ -886,6 +904,102 @@ export const advanceLiveFlow = async (
             'AVAILABLE'
         );
     }
+};
+
+/** The advance's steps, under the run lock: saves the run, returns the payloads to send. */
+const advanceRun = async (
+    deps: LiveDeps,
+    data: LiveAdvanceJobParams
+): Promise<{
+    outgoing: LiveSendJobParams[];
+    plan: ReturnType<typeof summarisePlan> | null;
+    npType: SessionCache['npType'];
+}> => {
+    const { doc, executor, session, plays } = await load(deps, data.sessionId);
+    let record = await getRecord(deps, data.transactionId, data.subscriberUrl);
+    if (!record)
+        throw new Error(`No live run for transaction ${data.transactionId}`);
+    const journey = journeyOf(doc, record.journeyId);
+    const outgoing: LiveSendJobParams[] = [];
+    const send = (run: StepRunV2) => {
+        outgoing.push({
+            action: run.event!.api,
+            domain: executor.options.domain,
+            version: executor.options.version,
+            payload: run.event!.payload,
+            subscriberUrl: data.subscriberUrl,
+            queryParams: {
+                subscriber_url: data.subscriberUrl,
+                flow_id: record!.journeyId,
+                session_id: data.sessionId,
+            },
+            live: {
+                transactionId: data.transactionId,
+                subscriberUrl: data.subscriberUrl,
+                label: `${run.nodeId} (${run.event!.api})`,
+            },
+        });
+    };
+
+    if (data.triggerExtra) {
+        const out = await triggerV2(
+            executor,
+            record.state,
+            data.triggerExtra,
+            data.inputs
+        );
+        record = withLogs({ ...record, state: out.state }, out.logs);
+        if (isOutgoing(out.run)) send(out.run!);
+        await saveRecord(deps, record);
+        return { outgoing, plan: null, npType: session.npType };
+    }
+
+    const { stepThrough } = await getLiveSettings(deps, data.sessionId);
+    let sends = data.sends ?? 1;
+    let plan: GraphPlanV2 | null = null;
+    for (let i = 0; i < ADVANCE_LIMIT; i += 1) {
+        if (stepThrough) {
+            // Pause before each payload the mock would send, once this job's are spent.
+            const ahead = planV2(executor, record.state, journey, plays);
+            const sending =
+                (ahead.kind === 'run' && sendsPayload(ahead.node)) ||
+                (ahead.kind === 'inputs' &&
+                    i === 0 &&
+                    data.inputs !== undefined);
+            if (sending) {
+                if (sends <= 0) {
+                    plan = ahead;
+                    record = withLogs(record, [
+                        {
+                            level: 'info',
+                            message: `Paused before ${ahead.node.id} (${ahead.node.api}) · step-through is on: Run step sends it`,
+                        },
+                    ]);
+                    break;
+                }
+                sends -= 1;
+            }
+        }
+        const step = await stepV2(executor, record.state, journey, {
+            plays,
+            ...(i === 0 && data.inputs !== undefined
+                ? { inputs: data.inputs }
+                : {}),
+            ...(i === 0 && data.formData !== undefined
+                ? { formData: data.formData }
+                : {}),
+        });
+        record = withLogs({ ...record, state: step.state }, step.logs);
+        plan = step.plan;
+        if (step.outcome === 'ran' && isOutgoing(step.run)) send(step.run!);
+        if (step.outcome !== 'ran') break;
+    }
+    await saveRecord(deps, record);
+    return {
+        outgoing,
+        plan: plan ? summarisePlan(plan) : null,
+        npType: session.npType,
+    };
 };
 
 export type LiveReceiveResult =
@@ -964,108 +1078,154 @@ export const receiveLivePayload = async (
     if (!found) return { kind: 'not-live' };
     const { doc, executor, plays } = await load(deps, found.sessionId);
     const journey = journeyOf(doc, found.journeyId);
-    let record =
-        (found.existing
-            ? await getRecord(deps, transactionId, subscriberUrl)
-            : null) ??
-        ({
-            sessionId: found.sessionId,
-            journeyId: found.journeyId,
-            transactionId,
-            subscriberUrl,
-            state: createGraphRunV2(executor, { transactionId, journey }),
-            rejected: [],
-            logs: [],
-            updatedAt: new Date().toISOString(),
-        } satisfies LiveRunRecord);
-    if (!found.existing)
-        await markFlowOnSession(
-            deps,
-            found.sessionId,
-            found.journeyId,
-            transactionId
-        );
 
-    const reject = async (reason: string): Promise<LiveReceiveResult> => {
-        record = withLogs(
-            {
-                ...record,
-                rejected: [
-                    ...record.rejected,
-                    {
-                        ts: new Date().toISOString(),
-                        action: payload.context.action as string | undefined,
-                        messageId: payload.context.message_id as
-                            | string
-                            | undefined,
-                        reason,
-                        payload,
-                    },
-                ].slice(-LOG_LIMIT),
-            },
-            [{ level: 'error', message: reason }]
-        );
-        await saveRecord(deps, record);
-        return { kind: 'rejected', reason };
-    };
-
-    const got = await receiveV2(executor, record.state, journey, payload, {
-        plays,
-    });
-    if (!got.run) return reject(got.error ?? 'The payload was not taken');
-
-    const failure = validationFailure(got.run);
-    if (failure) {
-        const reason = `${got.run.nodeId}: ${failure.description}`;
-        await reject(reason);
-        const node = executor.getNode(got.run.nodeId)!;
-        const api = node.api;
-        const action = api.startsWith('on_') ? api.slice(3) : `on_${api}`;
-        const params: LiveSendJobParams = {
-            action,
-            domain: executor.options.domain,
-            version: executor.options.version,
-            live: {
+    const taken = await withRunLock(
+        liveRunKey(transactionId, subscriberUrl),
+        async (): Promise<
+            | { kind: 'rejected'; reason: string }
+            | {
+                  kind: 'invalid';
+                  nodeId: string;
+                  reason: string;
+                  errorCallback: LiveSendJobParams;
+              }
+            | { kind: 'accepted'; nodeId: string }
+        > => {
+            // Read under the lock: an advance or another payload may have written the
+            // run since findLiveRun looked, or started it (a participant-opened journey).
+            const stored = await getRecord(deps, transactionId, subscriberUrl);
+            let record: LiveRunRecord = stored ?? {
+                sessionId: found.sessionId,
+                journeyId: found.journeyId,
                 transactionId,
                 subscriberUrl,
-                label: `error callback ${action} for ${got.run.nodeId}`,
-            },
-            payload: {
-                context: {
-                    ...payload.context,
-                    action,
-                    timestamp: new Date().toISOString(),
-                },
-                error: { code: failure.code, message: failure.description },
-            },
-            subscriberUrl,
-            queryParams: {
-                flow_id: found.journeyId,
-                session_id: found.sessionId,
-                subscriber_url: subscriberUrl,
-            },
-        };
-        await deps.queue.enqueue(STUDIO_LIVE_SEND_JOB, params);
-        return { kind: 'invalid', nodeId: got.run.nodeId, reason };
-    }
+                state: createGraphRunV2(executor, { transactionId, journey }),
+                rejected: [],
+                logs: [],
+                updatedAt: new Date().toISOString(),
+            };
+            if (!stored)
+                await markFlowOnSession(
+                    deps,
+                    found.sessionId,
+                    found.journeyId,
+                    transactionId
+                );
 
-    const recognitions = { ...got.state.recognitions };
-    const index = got.state.runs.length - 1;
-    if (recognitions[index])
-        recognitions[index] = slimRecognition(recognitions[index]);
-    record = withLogs(
-        { ...record, state: { ...got.state, recognitions } },
-        got.logs
+            const reject = async (reason: string) => {
+                record = withLogs(
+                    {
+                        ...record,
+                        rejected: [
+                            ...record.rejected,
+                            {
+                                ts: new Date().toISOString(),
+                                action: payload.context.action as
+                                    | string
+                                    | undefined,
+                                messageId: payload.context.message_id as
+                                    | string
+                                    | undefined,
+                                reason,
+                                payload,
+                            },
+                        ].slice(-LOG_LIMIT),
+                    },
+                    [{ level: 'error', message: reason }]
+                );
+                await saveRecord(deps, record);
+                return { kind: 'rejected' as const, reason };
+            };
+
+            const got = await receiveV2(
+                executor,
+                record.state,
+                journey,
+                payload,
+                { plays }
+            );
+            if (!got.run)
+                return reject(got.error ?? 'The payload was not taken');
+
+            const failure = validationFailure(got.run);
+            if (failure) {
+                const reason = `${got.run.nodeId}: ${failure.description}`;
+                await reject(reason);
+                const node = executor.getNode(got.run.nodeId)!;
+                const api = node.api;
+                const action = api.startsWith('on_')
+                    ? api.slice(3)
+                    : `on_${api}`;
+                return {
+                    kind: 'invalid',
+                    nodeId: got.run.nodeId,
+                    reason,
+                    errorCallback: {
+                        action,
+                        domain: executor.options.domain,
+                        version: executor.options.version,
+                        live: {
+                            transactionId,
+                            subscriberUrl,
+                            label: `error callback ${action} for ${got.run.nodeId}`,
+                        },
+                        payload: {
+                            context: {
+                                ...payload.context,
+                                action,
+                                timestamp: new Date().toISOString(),
+                            },
+                            error: {
+                                code: failure.code,
+                                message: failure.description,
+                            },
+                        },
+                        subscriberUrl,
+                        queryParams: {
+                            flow_id: found.journeyId,
+                            session_id: found.sessionId,
+                            subscriber_url: subscriberUrl,
+                        },
+                    },
+                };
+            }
+
+            const recognitions = { ...got.state.recognitions };
+            const index = got.state.runs.length - 1;
+            if (recognitions[index])
+                recognitions[index] = slimRecognition(recognitions[index]);
+            record = withLogs(
+                { ...record, state: { ...got.state, recognitions } },
+                got.logs
+            );
+            await saveRecord(deps, record);
+            return { kind: 'accepted', nodeId: got.run.nodeId };
+        }
     );
-    await saveRecord(deps, record);
-    // With step-through on, the mock answers only when the tester clicks Run step.
-    const jobId = await enqueueAdvance(deps, {
-        sessionId: found.sessionId,
-        transactionId,
-        subscriberUrl,
-        sends: 0,
-    });
-    return { kind: 'accepted', nodeId: got.run.nodeId, jobId };
+
+    // Queued outside the lock (the advance takes it), once the run is stored.
+    switch (taken.kind) {
+        case 'rejected':
+            return taken;
+        case 'invalid':
+            // v1's answer: an error callback on the mirrored action.
+            await deps.queue.enqueue(STUDIO_LIVE_SEND_JOB, taken.errorCallback);
+            return {
+                kind: 'invalid',
+                nodeId: taken.nodeId,
+                reason: taken.reason,
+            };
+        case 'accepted': {
+            // With step-through on, the mock answers only when the tester clicks Run step.
+            const jobId = await enqueueAdvance(deps, {
+                sessionId: found.sessionId,
+                transactionId,
+                subscriberUrl,
+                sends: 0,
+            });
+            return { kind: 'accepted', nodeId: taken.nodeId, jobId };
+        }
+    }
 };
 
 /** One payload's sync exchange, from the api-service's transaction record. */
