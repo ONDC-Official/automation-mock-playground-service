@@ -40,6 +40,8 @@ logger.info('Redis client for DB 1 initialized');
 container.setCacheService0(createRedisCacheService(redis0Client));
 container.setCacheService1(createRedisCacheService(redis1Client));
 container.setQueueService(createInMemoryQueue());
+// Protocol Studio's live jobs get their own queue, so v1's never wait behind them.
+container.setStudioQueueService(createInMemoryQueue());
 
 const allowedFetchBaseUrls = [
     process.env.FINVU_AA_SERVICE_URL,

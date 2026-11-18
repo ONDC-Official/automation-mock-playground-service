@@ -232,7 +232,7 @@ const container = ServiceContainer.getInstance();
 const studioLiveRouter = createStudioLiveRouter(() => ({
     cache: container.getCacheService0(),
     workbench: container.getWorkbenchCacheService(),
-    queue: container.getQueueService(),
+    queue: container.getStudioQueueService(),
 }));
 
 export default studioLiveRouter;
