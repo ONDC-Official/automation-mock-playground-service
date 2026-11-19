@@ -50,7 +50,9 @@ const createServer = (): Application => {
         return sendSuccess(res, { status: 'ok' });
     });
 
-    app.use(express.json({ limit: '3mb' }));
+    // 8 MiB: an FD body may be that large (fd-gate's maxBodyBytes). Raised for every domain:
+    // the domain is only known after parsing.
+    app.use(express.json({ limit: '8mb' }));
     app.use(express.urlencoded({ extended: true }));
 
     const base = '/mock/playground';

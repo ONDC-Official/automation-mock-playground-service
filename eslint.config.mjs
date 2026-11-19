@@ -83,6 +83,7 @@ export default [
                         'sendError',
                         'sendAck',
                         'sendNack',
+                        'sendRawBody',
                     ],
                 },
             ],
@@ -96,6 +97,8 @@ export default [
             '**/*.spec.ts',
             '**/test/**/*.ts',
             '**/tests/**/*.ts',
+            // Test fixtures kept outside src/test, which .dockerignore drops.
+            '**/test-fixtures.ts',
         ],
         languageOptions: {
             globals: {

@@ -1,5 +1,6 @@
 import MockRunner from '@ondc/automation-mock-runner';
 import jsonpath from 'jsonpath';
+import { z } from 'zod';
 import { ICacheService } from '../../cache/cache-interface';
 import {
     SessionCacheSchema,
@@ -543,8 +544,184 @@ const subscriberCache = (cache: ICacheService) => {
     };
 };
 
+/**
+ * FD-only keys (domain ONDC:FIS14:FD). Beckn flows never read or write them.
+ *
+ * - `FD_ENGINE_STATE::<transactionId>::<subscriberUrl>`: the engine's per-transaction state,
+ *   stored as the engine's own serialisation (canonical JSON), so the report service can read
+ *   it with `deserialiseFdState`.
+ * - `FD_INBOUND::<transactionId>::<subscriberUrl>`: the latest message the NP sent per FD
+ *   action, kept so a callback can be drafted `answering` its request.
+ * - `FD_ENGINE_LOCK::<transactionId>::<subscriberUrl>`: held while one caller reads, changes
+ *   and writes back the engine state, so concurrent writers (an NP's next request, the
+ *   acknowledgement of the workbench's own send) never lose each other's update.
+ */
+const fdCache = (cache: ICacheService) => {
+    const engineStateKey = (transactionId: string, subscriberUrl: string) =>
+        `FD_ENGINE_STATE::${transactionId.trim()}::${subscriberUrl.trim()}`;
+    const inboundKey = (transactionId: string, subscriberUrl: string) =>
+        `FD_INBOUND::${transactionId.trim()}::${subscriberUrl.trim()}`;
+    const InboundStoreSchema = z.record(z.string(), z.unknown());
+
+    /** The stored engine state as text, or null when the transaction has none yet. */
+    const getEngineState = async (
+        transactionId: string,
+        subscriberUrl: string
+    ): Promise<string | null> => {
+        const value = await cache.get(
+            engineStateKey(transactionId, subscriberUrl),
+            z.unknown()
+        );
+        if (value === null || value === undefined) return null;
+        // The engine's text is JSON; the cache layer hands it back parsed.
+        return typeof value === 'string' ? value : JSON.stringify(value);
+    };
+
+    /**
+     * Stores the engine's serialised state. The text is JSON, so it is stored as that JSON
+     * (not as a quoted string): the raw Redis value is the engine's serialisation.
+     */
+    const setEngineState = async (
+        transactionId: string,
+        subscriberUrl: string,
+        serialised: string,
+        ttlSeconds: number
+    ): Promise<void> => {
+        let value: unknown;
+        try {
+            value = JSON.parse(serialised);
+        } catch {
+            value = serialised;
+        }
+        await cache.set(
+            engineStateKey(transactionId, subscriberUrl),
+            value,
+            z.unknown(),
+            ttlSeconds
+        );
+    };
+
+    const getInbound = async (
+        transactionId: string,
+        subscriberUrl: string,
+        action: string
+    ): Promise<unknown | undefined> => {
+        const store = await cache.get(
+            inboundKey(transactionId, subscriberUrl),
+            InboundStoreSchema
+        );
+        return store?.[action];
+    };
+
+    const setInbound = async (
+        transactionId: string,
+        subscriberUrl: string,
+        action: string,
+        inbound: unknown,
+        ttlSeconds: number
+    ): Promise<void> => {
+        const key = inboundKey(transactionId, subscriberUrl);
+        const store = (await cache.get(key, InboundStoreSchema)) ?? {};
+        store[action] = inbound;
+        await cache.set(key, store, InboundStoreSchema, ttlSeconds);
+    };
+
+    // The exact text of each FD message the workbench sent, by message_id. A replay must be
+    // byte-identical (the API service compares body digests), and the engine keeps bodies in
+    // canonical (key-sorted) JSON, so the text is kept as sent.
+    const sentRawKey = (
+        transactionId: string,
+        subscriberUrl: string,
+        messageId: string
+    ) =>
+        `FD_SENT_RAW::${transactionId.trim()}::${subscriberUrl.trim()}::${messageId.trim()}`;
+
+    const getSentRaw = async (
+        transactionId: string,
+        subscriberUrl: string,
+        messageId: string
+    ): Promise<string | null> =>
+        cache.get(
+            sentRawKey(transactionId, subscriberUrl, messageId),
+            z.string()
+        );
+
+    const setSentRaw = async (
+        transactionId: string,
+        subscriberUrl: string,
+        messageId: string,
+        raw: string,
+        ttlSeconds: number
+    ): Promise<void> =>
+        cache.set(
+            sentRawKey(transactionId, subscriberUrl, messageId),
+            raw,
+            z.string(),
+            ttlSeconds
+        );
+
+    /**
+     * The path parameters of an NP's request, as fd-gate (np mode) left them under
+     * `FD_PATH_PARAMS::<domain>::<transaction_id>::<message_id>`: an asynchronous request reaches
+     * the playground with its body alone, without `X-Pwb-Fd-Path-Params`.
+     */
+    const getPathParams = async (
+        domain: string,
+        transactionId: string,
+        messageId: string
+    ): Promise<Record<string, string> | null> =>
+        cache.get(
+            `FD_PATH_PARAMS::${domain}::${transactionId.trim()}::${messageId.trim()}`,
+            z.record(z.string(), z.string())
+        );
+
+    const lockKey = (transactionId: string, subscriberUrl: string) =>
+        `FD_ENGINE_LOCK::${transactionId.trim()}::${subscriberUrl.trim()}`;
+
+    /**
+     * Tries once to take the engine-state lock with `token`. True when taken, or when the cache
+     * cannot lock at all (no `setIfAbsent`: a single in-process test cache).
+     */
+    const tryLockEngineState = async (
+        transactionId: string,
+        subscriberUrl: string,
+        token: string,
+        ttlMs: number
+    ): Promise<boolean> => {
+        if (!cache.setIfAbsent) return true;
+        return cache.setIfAbsent(
+            lockKey(transactionId, subscriberUrl),
+            token,
+            ttlMs
+        );
+    };
+
+    /** Releases the lock if `token` still holds it (an expired lock is someone else's). */
+    const unlockEngineState = async (
+        transactionId: string,
+        subscriberUrl: string,
+        token: string
+    ): Promise<void> => {
+        if (!cache.deleteIfValue) return;
+        await cache.deleteIfValue(lockKey(transactionId, subscriberUrl), token);
+    };
+
+    return {
+        getEngineState,
+        setEngineState,
+        getInbound,
+        setInbound,
+        getSentRaw,
+        setSentRaw,
+        getPathParams,
+        tryLockEngineState,
+        unlockEngineState,
+    };
+};
+
 export type FlowStatusCacheService = ReturnType<typeof flowStatusCache>;
 export type SubscriberCacheService = ReturnType<typeof subscriberCache>;
+export type FdCacheService = ReturnType<typeof fdCache>;
 
 export const WorkbenchCacheService = (cache: ICacheService) => {
     const transactionalCache = createTransactionalCache(cache);
@@ -552,12 +729,14 @@ export const WorkbenchCacheService = (cache: ICacheService) => {
     const txnBusinessCache = createTxnBusinessCache(cache);
     const flowStatusCacheService = flowStatusCache(cache);
     const subscriberCacheService = subscriberCache(cache);
+    const fdCacheService = fdCache(cache);
     return {
         TransactionalCacheService: () => transactionalCache,
         NpSessionalCacheService: () => sessionalCache,
         TxnBusinessCacheService: () => txnBusinessCache,
         FlowStatusCacheService: () => flowStatusCacheService,
         SubscriberCacheService: () => subscriberCacheService,
+        FdCacheService: () => fdCacheService,
     };
 };
 

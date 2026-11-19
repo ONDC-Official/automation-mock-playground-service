@@ -14,6 +14,7 @@ import {
     createExtrasResolver,
     ExtrasIndex,
 } from './resolvers/extras-resolver';
+import { fdReplayResolver } from './resolvers/fd-replay-resolver';
 import { missedResolver } from './resolvers/missed-resolver';
 import {
     Resolver,
@@ -32,15 +33,18 @@ export class FlowMapBuilder {
     private readonly mappedFlow: FlowMap;
     private readonly cursor = { value: 0 };
     private readonly resolvers: Resolver[];
+    private readonly domain?: string;
 
     constructor(
         transactionData: TransactionCache,
         flow: Flow,
         flowStatus: MockStatusCode,
         mockSessionData: MockSessionCache,
-        extraFlowStatuses?: ReadonlyMap<string, MockStatusCode>
+        extraFlowStatuses?: ReadonlyMap<string, MockStatusCode>,
+        domain?: string
     ) {
         this.transactionData = transactionData;
+        this.domain = domain;
         this.subscriberType = transactionData.subscriberType;
         this.flowStatus = flowStatus;
         this.extraFlowStatuses = extraFlowStatuses;
@@ -62,12 +66,16 @@ export class FlowMapBuilder {
         this.resolvers = [
             sequenceResolver,
             createExtrasResolver(this.extrasIndex, extrasState),
+            fdReplayResolver,
             missedResolver,
         ];
     }
 
     build(): FlowMap {
-        const apiList = reduceApiDataList(this.transactionData.apiList).sort(
+        const apiList = reduceApiDataList(
+            this.transactionData.apiList,
+            this.domain
+        ).sort(
             (a, b) =>
                 new Date(a.timestamp).getTime() -
                 new Date(b.timestamp).getTime()

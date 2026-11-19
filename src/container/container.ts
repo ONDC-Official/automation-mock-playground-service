@@ -180,7 +180,10 @@ class ServiceContainer {
         );
         queue.process<ApiServiceRequestJobParams>(
             SEND_TO_API_SERVICE_JOB,
-            createApiServiceRequestJobHandler()
+            createApiServiceRequestJobHandler({
+                workbenchCache: this._workbenchCacheService,
+                queue,
+            })
         );
         queue.process<ApiServiceFormRequestJobParams>(
             API_SERVICE_FORM_REQUEST_JOB,

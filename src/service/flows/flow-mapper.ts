@@ -24,14 +24,16 @@ export function getFlowCompleteStatus(
     flow: Flow,
     flowStatus: MockStatusCode,
     mockSessionData: MockSessionCache,
-    extraFlowStatuses?: ReadonlyMap<string, MockStatusCode>
+    extraFlowStatuses?: ReadonlyMap<string, MockStatusCode>,
+    domain?: string
 ) {
     return new FlowMapBuilder(
         transactionData,
         flow,
         flowStatus,
         mockSessionData,
-        extraFlowStatuses
+        extraFlowStatuses,
+        domain
     ).build();
 }
 
@@ -40,14 +42,16 @@ export function getNextActions(
     flow: Flow,
     flowStatus: MockStatusCode,
     mockSessionData: MockSessionCache,
-    extraFlowStatuses?: ReadonlyMap<string, MockStatusCode>
+    extraFlowStatuses?: ReadonlyMap<string, MockStatusCode>,
+    domain?: string
 ): NextActionMeta {
     const flowDetails = getFlowCompleteStatus(
         transactionData,
         flow,
         flowStatus,
         mockSessionData,
-        extraFlowStatuses
+        extraFlowStatuses,
+        domain
     );
     const sequenceNext = flowDetails.sequence.find(s =>
         ACTIONABLE_STATUSES.has(s.status)

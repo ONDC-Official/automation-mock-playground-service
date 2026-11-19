@@ -303,7 +303,9 @@ export const flowControllers = (
                 transactionData,
                 flow,
                 flowWorkingState.status,
-                mockSessionData
+                mockSessionData,
+                undefined,
+                sessionData.domain
             );
             sendSuccess(res, status);
         } catch (error) {

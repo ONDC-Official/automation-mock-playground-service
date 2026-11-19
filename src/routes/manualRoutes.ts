@@ -3,6 +3,7 @@ import { FlowContext } from '../types/process-flow-types';
 import ServiceContainer from '../container/container';
 import { flowControllers } from '../controllers/flow-controller';
 import { incomingRequestControllers } from '../controllers/incoming-request-controller';
+import { fdControllers } from '../controllers/fd-controller';
 
 const manualRouter = Router();
 
@@ -23,9 +24,17 @@ const incomingControllers = incomingRequestControllers(
     container.getQueueService()
 );
 
+const fdControllersInstance = fdControllers(
+    container.getWorkbenchCacheService(),
+    container.getMockRunnerConfigCache(),
+    container.getQueueService()
+);
+
 manualRouter.post(
     '/:action',
     flowControllersInstance.receivePayloadFromApiService,
+    // FD only (ONDC:FIS14:FD): answers SYNC requests inline, observes the rest. Beckn: next().
+    fdControllersInstance.fdIncomingRequest,
     incomingControllers.validateAndSaveIncomingRequest,
     flowControllersInstance.actUponFlow
 );

@@ -11,6 +11,13 @@ import {
 import { WorkbenchCacheServiceType } from '../cache/workbench-cache';
 import { getSaveDataConfig } from '../../utils/runner-utils';
 import { buildErrorPayload } from '../../utils/build-error-payload';
+import { FD_DRAFT_SESSION_KEY, isFdDomain } from '../../fd/constants';
+import {
+    FdOutgoing,
+    FdSendMeta,
+    finaliseFdOutgoing,
+    prepareFdOutgoing,
+} from '../../fd/outgoing';
 
 export const GENERATE_PAYLOAD_JOB = 'GENERATE_PAYLOAD_JOB';
 
@@ -24,6 +31,8 @@ export type GenerateMockPayloadJobResult = {
     success: boolean;
     message: string;
     payload?: unknown;
+    /** FD only: what the send job needs (path params, SYNC-answer hook). */
+    fd?: FdSendMeta;
 };
 
 type MeetRequirementsResult = {
@@ -100,6 +109,10 @@ export function createGeneratePayloadJobHandler(
         const resetStatusToAvailable = () =>
             resetFlowStatusToAvailable(workbenchCache, flowContext, actionMeta);
 
+        // FD: the engine drafts the message; the step script returns
+        // `sessionData.fd_draft`, possibly tweaked. The draft holds the transaction's
+        // engine-state lock until it is finalised (or released below, on any failure).
+        let fdOutgoing: FdOutgoing | undefined;
         try {
             const mockRunner = await configCache.getRunnerInstance(
                 flowContext.domain,
@@ -129,6 +142,17 @@ export function createGeneratePayloadJobHandler(
             const finvuUrl = process.env.FINVU_AA_SERVICE_URL;
             if (finvuUrl) {
                 txnMockData.finvuUrl = finvuUrl;
+            }
+
+            if (isFdDomain(flowContext.domain)) {
+                fdOutgoing = await prepareFdOutgoing({
+                    flowContext,
+                    actionMeta,
+                    inputs: data.inputs,
+                    runnerConfig: mockRunner.getConfig(),
+                    workbenchCache,
+                });
+                txnMockData[FD_DRAFT_SESSION_KEY] = fdOutgoing.draft.body;
             }
 
             if (process.env.SKIP_MEETS_REQUIRMENTS === 'true') {
@@ -224,6 +248,20 @@ export function createGeneratePayloadJobHandler(
             }
 
             logger.debug('Generated mock payload', logMeta);
+            if (fdOutgoing) {
+                const { payload, fd } = await finaliseFdOutgoing(
+                    fdOutgoing,
+                    genOutput.result,
+                    flowContext,
+                    actionMeta
+                );
+                return {
+                    success: true,
+                    message: 'Payload generated successfully',
+                    payload,
+                    fd,
+                };
+            }
             return {
                 success: true,
                 message: 'Payload generated successfully',
@@ -233,6 +271,8 @@ export function createGeneratePayloadJobHandler(
             logger.error('Error generating mock payload', logMeta, error);
             await resetStatusToAvailable();
             throw error;
+        } finally {
+            await fdOutgoing?.txn.release();
         }
     };
 }
@@ -281,6 +321,7 @@ export function createGenerationRequestCompleteHandler(
                     flow_id: job.data.flowContext.flowId,
                     session_id: job.data.flowContext.sessionId,
                 },
+                ...(parsedResult?.fd ? { fd: parsedResult.fd } : {}),
             };
             const mockRunnerConfig = await mockRunnerCache.getMockRunnerConfig(
                 job.data.flowContext.domain,

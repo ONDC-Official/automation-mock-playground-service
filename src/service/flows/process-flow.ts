@@ -80,7 +80,8 @@ export async function actOnFlowService(
         params.flow,
         flowStatus.status,
         businessCache,
-        extraFlowStatuses
+        extraFlowStatuses,
+        params.domain
     );
 
     const hasInputs = params.inputs !== undefined;

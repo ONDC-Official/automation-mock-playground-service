@@ -236,7 +236,11 @@ describe('flow-mapper', () => {
                 makeTxn(
                     [
                         apiHistory('search', 'm1', '2024-01-01T00:00:00.000Z'),
-                        apiHistory('on_search', 'm2', '2024-01-01T00:00:01.000Z'),
+                        apiHistory(
+                            'on_search',
+                            'm2',
+                            '2024-01-01T00:00:01.000Z'
+                        ),
                     ],
                     'BAP'
                 ),
@@ -265,7 +269,11 @@ describe('flow-mapper', () => {
                 makeTxn(
                     [
                         // intentionally out of chronological order
-                        apiHistory('on_search', 'm2', '2024-01-01T00:00:01.000Z'),
+                        apiHistory(
+                            'on_search',
+                            'm2',
+                            '2024-01-01T00:00:01.000Z'
+                        ),
                         apiHistory('search', 'm1', '2024-01-01T00:00:00.000Z'),
                     ],
                     'BAP'
@@ -342,13 +350,7 @@ describe('flow-mapper', () => {
             ]);
             const result = getFlowCompleteStatus(
                 makeTxn(
-                    [
-                        apiHistory(
-                            'on_cancel',
-                            'm1',
-                            '2024-01-01T00:00:00.000Z'
-                        ),
-                    ],
+                    [apiHistory('on_cancel', 'm1', '2024-01-01T00:00:00.000Z')],
                     'BAP'
                 ),
                 flow,
@@ -781,13 +783,7 @@ describe('flow-mapper', () => {
             ]);
             const result = getFlowCompleteStatus(
                 makeTxn(
-                    [
-                        apiHistory(
-                            'on_cancel',
-                            'm1',
-                            '2024-01-01T00:00:00.000Z'
-                        ),
-                    ],
+                    [apiHistory('on_cancel', 'm1', '2024-01-01T00:00:00.000Z')],
                     'BAP'
                 ),
                 flow,
@@ -812,13 +808,7 @@ describe('flow-mapper', () => {
             );
             const result = getFlowCompleteStatus(
                 makeTxn(
-                    [
-                        apiHistory(
-                            'on_cancel',
-                            'm1',
-                            '2024-01-01T00:00:00.000Z'
-                        ),
-                    ],
+                    [apiHistory('on_cancel', 'm1', '2024-01-01T00:00:00.000Z')],
                     'BAP'
                 ),
                 flow,
@@ -859,13 +849,7 @@ describe('flow-mapper', () => {
             );
             const result = getFlowCompleteStatus(
                 makeTxn(
-                    [
-                        apiHistory(
-                            'on_update',
-                            'm1',
-                            '2024-01-01T00:00:00.000Z'
-                        ),
-                    ],
+                    [apiHistory('on_update', 'm1', '2024-01-01T00:00:00.000Z')],
                     'BAP'
                 ),
                 flow,
@@ -917,11 +901,7 @@ describe('flow-mapper', () => {
                             'm1',
                             '2024-01-01T00:00:00.000Z'
                         ),
-                        apiHistory(
-                            'update',
-                            'm1',
-                            '2024-01-01T00:00:01.000Z'
-                        ),
+                        apiHistory('update', 'm1', '2024-01-01T00:00:01.000Z'),
                     ],
                     'BAP'
                 ),
@@ -944,11 +924,7 @@ describe('flow-mapper', () => {
             const result = getFlowCompleteStatus(
                 makeTxn(
                     [
-                        apiHistory(
-                            'update',
-                            'm1',
-                            '2024-01-01T00:00:00.000Z'
-                        ),
+                        apiHistory('update', 'm1', '2024-01-01T00:00:00.000Z'),
                         apiHistory(
                             'on_update',
                             'm1',
@@ -1021,13 +997,7 @@ describe('flow-mapper', () => {
             );
             const result = getFlowCompleteStatus(
                 makeTxn(
-                    [
-                        apiHistory(
-                            'on_update',
-                            'm1',
-                            '2024-01-01T00:00:00.000Z'
-                        ),
-                    ],
+                    [apiHistory('on_update', 'm1', '2024-01-01T00:00:00.000Z')],
                     'BAP'
                 ),
                 flow,
@@ -1208,13 +1178,7 @@ describe('flow-mapper', () => {
             );
             const result = getFlowCompleteStatus(
                 makeTxn(
-                    [
-                        apiHistory(
-                            'on_update',
-                            'm1',
-                            '2024-01-01T00:00:00.000Z'
-                        ),
-                    ],
+                    [apiHistory('on_update', 'm1', '2024-01-01T00:00:00.000Z')],
                     'BAP'
                 ),
                 flow,
@@ -1246,13 +1210,7 @@ describe('flow-mapper', () => {
             );
             const next = getNextActions(
                 makeTxn(
-                    [
-                        apiHistory(
-                            'on_update',
-                            'm1',
-                            '2024-01-01T00:00:00.000Z'
-                        ),
-                    ],
+                    [apiHistory('on_update', 'm1', '2024-01-01T00:00:00.000Z')],
                     'BAP'
                 ),
                 flow,
@@ -1291,13 +1249,7 @@ describe('flow-mapper', () => {
             );
             const next = getNextActionMetaData(
                 makeTxn(
-                    [
-                        apiHistory(
-                            'on_update',
-                            'm1',
-                            '2024-01-01T00:00:00.000Z'
-                        ),
-                    ],
+                    [apiHistory('on_update', 'm1', '2024-01-01T00:00:00.000Z')],
                     'BAP'
                 ),
                 flow,
@@ -1393,13 +1345,7 @@ describe('flow-mapper', () => {
             );
             const result = getFlowCompleteStatus(
                 makeTxn(
-                    [
-                        apiHistory(
-                            'update',
-                            'm1',
-                            '2024-01-01T00:00:00.000Z'
-                        ),
-                    ],
+                    [apiHistory('update', 'm1', '2024-01-01T00:00:00.000Z')],
                     'BAP'
                 ),
                 flow,
@@ -1524,5 +1470,128 @@ describe('flow-mapper', () => {
             expect(result.sequence[0].status).toBe('RESPONDING');
             expect(result.sequence[0].manual).toBeUndefined();
         });
+    });
+});
+
+describe('FD re-sends (fdReplay entries)', () => {
+    const FD = 'ONDC:FIS14:FD';
+    const fdAck = (messageId: string) => ({
+        context: { message_id: messageId },
+        message: { ack: { status: 'ACK' } },
+    });
+    const entry = (
+        action: string,
+        messageId: string,
+        timestamp: string,
+        replay = false
+    ): HistoryType =>
+        ({
+            entryType: 'API',
+            action,
+            payloadId: `${action}-${messageId}-${timestamp}`,
+            messageId,
+            response: fdAck(messageId),
+            timestamp,
+            ...(replay ? { fdReplay: true } : {}),
+        }) as HistoryType;
+
+    it('a retry step maps to the re-send of the same message_id', () => {
+        const flow = makeFlow('f', [
+            makeStep({ key: 'nr_1', type: 'nominee_register', owner: 'BAP' }),
+            makeStep({
+                key: 'on_nr_1',
+                type: 'on_nominee_register',
+                owner: 'BPP',
+            }),
+            makeStep({ key: 'nr_2', type: 'nominee_register', owner: 'BAP' }),
+            makeStep({
+                key: 'ac_1',
+                type: 'application_confirm',
+                owner: 'BAP',
+            }),
+        ]);
+        const result = getFlowCompleteStatus(
+            makeTxn(
+                [
+                    entry('nominee_register', 'm1', '2024-01-01T00:00:00.000Z'),
+                    entry(
+                        'on_nominee_register',
+                        'm2',
+                        '2024-01-01T00:00:01.000Z'
+                    ),
+                    // A re-send carries the original's bytes, so its context.timestamp;
+                    // the recorder appends it last and does not flag it.
+                    entry('nominee_register', 'm1', '2024-01-01T00:00:00.000Z'),
+                ],
+                'BPP'
+            ),
+            flow,
+            'AVAILABLE',
+            emptySession,
+            undefined,
+            FD
+        );
+        expect(result.sequence.map(s => s.status)).toEqual([
+            'COMPLETE',
+            'COMPLETE',
+            'COMPLETE',
+            'RESPONDING', // the workbench (BAP) sends next
+        ]);
+        expect(result.missedSteps).toEqual([]);
+    });
+
+    it('concurrent redeliveries with no step of their own fold into the step that sent the message', () => {
+        const flow = makeFlow('f', [
+            makeStep({ key: 'db_1', type: 'on_deposit_booked', owner: 'BPP' }),
+            makeStep({ key: 'dr_1', type: 'deposit_read', owner: 'BAP' }),
+        ]);
+        const t = '2024-01-01T00:00:00.000Z';
+        const result = getFlowCompleteStatus(
+            makeTxn(
+                [
+                    entry('on_deposit_booked', 'm1', t),
+                    entry('on_deposit_booked', 'm1', t),
+                    entry('on_deposit_booked', 'm1', t, true),
+                    entry('on_deposit_booked', 'm1', t, true),
+                    entry('on_deposit_booked', 'm1', t, true),
+                ],
+                'BAP'
+            ),
+            flow,
+            'AVAILABLE',
+            emptySession,
+            undefined,
+            FD
+        );
+        expect(result.sequence[0].status).toBe('COMPLETE');
+        const payloads = result.sequence[0].payloads;
+        expect(payloads?.entryType === 'API' && payloads.payloads).toHaveLength(
+            5
+        );
+        expect(result.sequence[1].status).toBe('LISTENING');
+        expect(result.missedSteps).toEqual([]);
+    });
+
+    it('Beckn: an entry flagged fdReplay is merged by action and message_id as before', () => {
+        const flow = makeFlow('f', [
+            makeStep({ key: 's1', type: 'search', owner: 'BAP' }),
+            makeStep({ key: 's2', type: 'search', owner: 'BAP' }),
+        ]);
+        const result = getFlowCompleteStatus(
+            makeTxn([
+                apiHistory('search', 'm1', '2024-01-01T00:00:00.000Z'),
+                {
+                    ...apiHistory('search', 'm1', '2024-01-01T00:00:01.000Z'),
+                    fdReplay: true,
+                } as HistoryType,
+            ]),
+            flow,
+            'AVAILABLE',
+            emptySession
+        );
+        expect(result.sequence.map(s => s.status)).toEqual([
+            'COMPLETE',
+            'LISTENING',
+        ]);
     });
 });

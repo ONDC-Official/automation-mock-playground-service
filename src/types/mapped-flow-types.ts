@@ -10,6 +10,8 @@ export type ReducedApiData = {
         payloadId: string;
         response: unknown;
     }[];
+    /** FD only: a byte-identical re-send of a message already sent (a retry or a redelivery). */
+    fdReplay?: boolean;
 };
 
 export type ReduceFormData = {

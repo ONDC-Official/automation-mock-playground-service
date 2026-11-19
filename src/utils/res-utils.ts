@@ -92,6 +92,24 @@ export function sendError(
     });
 }
 
+/**
+ * Sends a protocol body exactly as given, with its own HTTP status. Used where the body IS the
+ * protocol message, e.g. an FD SYNC answer drafted by the engine.
+ */
+export function sendRawBody(
+    res: Response,
+    body: unknown,
+    statusCode = 200
+): Response {
+    if (res.headersSent) {
+        resUtilsLogger.warning(
+            'Attempted to send raw body after headers were sent'
+        );
+        return res;
+    }
+    return res.status(statusCode).json(body);
+}
+
 export function sendAck(res: Response, context: BecknContext) {
     return res.status(200).json({
         context: context,
