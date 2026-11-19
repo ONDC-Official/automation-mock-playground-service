@@ -37,7 +37,27 @@ export function fetchFlow(sessionData: SessionCache, flowId: string): Flow {
     return flow;
 }
 
-export function computeSubscriber(context: BecknContext) {
+/**
+ * The participant whose session an incoming payload belongs to.
+ *
+ * The api-service knows which side received the call and passes that participant's url
+ * as the `subscriber_url` query param; it is used when it names one side of the context.
+ * Without it (an older api-service, or a url matching neither side) the beckn convention
+ * decides: on_* comes from the BPP, the rest from the BAP. That convention is wrong for a
+ * request the seller sends (an RSF recon owned by the BPP) and for a callback the buyer
+ * sends (its on_recon), and in a workbench-to-workbench run it files the payload under
+ * the sender's own session.
+ */
+export function computeSubscriber(
+    context: BecknContext,
+    subscriberUrl?: unknown
+) {
+    if (typeof subscriberUrl === 'string' && subscriberUrl !== '') {
+        const participant = [context.bap_uri, context.bpp_uri].find(uri =>
+            sameUrl(uri, subscriberUrl)
+        );
+        if (participant) return participant;
+    }
     const action = context.action;
     if (action == 'search') {
         return context.bap_uri;
@@ -51,6 +71,11 @@ export function computeSubscriber(context: BecknContext) {
         return context.bpp_uri;
     }
     return context.bap_uri;
+}
+
+/** Compares two subscriber urls, ignoring a trailing slash. */
+function sameUrl(a: string | undefined, b: string): boolean {
+    return !!a && a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
 }
 
 export function getReferenceData(

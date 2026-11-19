@@ -178,6 +178,8 @@ Pure read endpoint. Returns the full `FlowMap` from the mapper.
 
 Loads transaction (apiList already written by api-service before forwarding), attaches FlowContext.
 
+The transaction is looked up under the participant's url (`computeSubscriber`, `utils/flow-utils.ts`): the `subscriber_url` query param when the api-service sends one and it names `bap_uri` or `bpp_uri`, otherwise the beckn convention (`search` and requests → `bap_uri`, `on_*` → `bpp_uri`). The convention misfiles a request the seller sends (RSF `recon`) and a callback the buyer sends (`on_recon`).
+
 | Branch | File:line | Effect |
 |---|---|---|
 | `transactionData.sessionId` absent | `:51-55` | `InternalServerError('Session ID not found in transaction data')` → 500 |
