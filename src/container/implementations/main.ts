@@ -9,7 +9,7 @@ import { createInMemoryQueue } from '../../queue/InMemoryQueue';
 import logger from '../../utils/logger';
 import ServiceContainer from '../container';
 import Redis from 'ioredis';
-import MockRunner from '@ondc/automation-mock-runner';
+import MockRunner, { GraphExecutorV2 } from '@ondc/automation-mock-runner';
 
 validateEnv();
 
@@ -40,6 +40,8 @@ logger.info('Redis client for DB 1 initialized');
 container.setCacheService0(createRedisCacheService(redis0Client));
 container.setCacheService1(createRedisCacheService(redis1Client));
 container.setQueueService(createInMemoryQueue());
+// Protocol Studio's live jobs get their own queue, so v1's never wait behind them.
+container.setStudioQueueService(createInMemoryQueue());
 
 const allowedFetchBaseUrls = [
     process.env.FINVU_AA_SERVICE_URL,
@@ -47,8 +49,8 @@ const allowedFetchBaseUrls = [
 ].filter((u): u is string => !!u);
 if (allowedFetchBaseUrls.length > 0) {
     MockRunner.initSharedRunner({ allowedFetchBaseUrls });
+    // Studio live sessions run on the graph executor's own sandbox pool.
+    GraphExecutorV2.initSharedRunner({ allowedFetchBaseUrls });
 }
 
-
 logger.info('Main container initialized successfully');
-

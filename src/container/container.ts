@@ -1,4 +1,12 @@
 import { ICacheService } from '../cache/cache-interface';
+import {
+    createStudioLiveAdvanceJobHandler,
+    createStudioLiveSendJobHandler,
+    LiveAdvanceJobParams,
+    LiveSendJobParams,
+    STUDIO_LIVE_ADVANCE_JOB,
+    STUDIO_LIVE_SEND_JOB,
+} from '../service/studio-live/live-session';
 import { IQueueService } from '../queue/IQueueService';
 import { createCache } from '../cache/cache-factory';
 import {
@@ -50,6 +58,8 @@ class ServiceContainer {
     private _cacheService0: ICacheService | null = null; // used for WorkbenchCacheService
     private _cacheService1: ICacheService | null = null; // used fo mock runner.
     private _queueService: IQueueService | null = null;
+    /** Protocol Studio's live jobs, apart from v1's so neither waits behind the other. */
+    private _studioQueueService: IQueueService | null = null;
     private _workbenchCacheService: WorkbenchCacheServiceType | null = null;
     private _mockRunnerConfigCache: MockRunnerConfigCache | null = null;
 
@@ -118,6 +128,15 @@ class ServiceContainer {
     }
 
     /**
+     * The queue Protocol Studio's live jobs run on (STUDIO_LIVE_ADVANCE_JOB,
+     * STUDIO_LIVE_SEND_JOB): its own when one is set, else the main queue.
+     * v1's jobs stay on getQueueService().
+     */
+    public getStudioQueueService(): IQueueService {
+        return this._studioQueueService ?? this.getQueueService();
+    }
+
+    /**
      * Override cache service (useful for testing)
      */
     public setCacheService0(service: ICacheService): void {
@@ -145,12 +164,22 @@ class ServiceContainer {
     }
 
     /**
+     * Gives Protocol Studio's live jobs a queue of their own: they stay in order
+     * among themselves, and v1's jobs never wait behind them.
+     */
+    public setStudioQueueService(service: IQueueService): void {
+        this._studioQueueService = service;
+        this.registerStudioJobs(service);
+    }
+
+    /**
      * Reset all services (useful for testing)
      */
     public reset(): void {
         this._cacheService0 = null;
         this._cacheService1 = null;
         this._queueService = null;
+        this._studioQueueService = null;
         this._workbenchCacheService = null;
         this._mockRunnerConfigCache = null;
     }
@@ -186,6 +215,8 @@ class ServiceContainer {
             API_SERVICE_FORM_REQUEST_JOB,
             createApiServiceFormRequestJobHandler()
         );
+        // Studio's jobs, for as long as it has no queue of its own (getStudioQueueService).
+        this.registerStudioJobs(queue);
 
         // ? Register event handlers
         queue.on<GenerateMockPayloadJobParams>(
@@ -226,11 +257,35 @@ class ServiceContainer {
     }
 
     /**
+     * Protocol Studio live sessions (see service/studio-live): advance a graph-v2
+     * run, and send its payloads, keeping what the api-service answered on the run.
+     * Their follow-up jobs go to the Studio queue.
+     */
+    private registerStudioJobs(queue: IQueueService): void {
+        const deps = () => ({
+            cache: this.getCacheService0(),
+            workbench: this.getWorkbenchCacheService(),
+            queue: this.getStudioQueueService(),
+        });
+        queue.process<LiveAdvanceJobParams>(
+            STUDIO_LIVE_ADVANCE_JOB,
+            createStudioLiveAdvanceJobHandler(deps)
+        );
+        queue.process<LiveSendJobParams>(
+            STUDIO_LIVE_SEND_JOB,
+            createStudioLiveSendJobHandler(deps)
+        );
+    }
+
+    /**
      * Graceful shutdown - close all services
      */
     public async shutdown(): Promise<void> {
         if (this._queueService) {
             await this._queueService.close();
+        }
+        if (this._studioQueueService) {
+            await this._studioQueueService.close();
         }
     }
 }
