@@ -43,7 +43,10 @@ export const flowControllers = (
         try {
             const context = req.body.context;
             const transactionId = context.transaction_id;
-            const subscriberUrl = computeSubscriber(context);
+            const subscriberUrl = computeSubscriber(
+                context,
+                req.query.subscriber_url
+            );
             const transactionData = await workbenchCache
                 .TransactionalCacheService()
                 .getTransactionData(transactionId, subscriberUrl);
